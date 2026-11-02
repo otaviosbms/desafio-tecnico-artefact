@@ -1,5 +1,7 @@
 from django.db import models
 
+from .text import normalize
+
 
 class Category(models.Model):
     name = models.CharField(max_length=100)
@@ -27,6 +29,8 @@ class Product(models.Model):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
     specs = models.JSONField(default=dict, blank=True)
     created_at = models.DateField(null=True, blank=True)
+    # Nome + categoria normalizados (ver store.text.normalize), usado na busca.
+    search_name = models.CharField(max_length=300, blank=True, editable=False)
 
     class Meta:
         verbose_name = 'produto'
@@ -34,6 +38,13 @@ class Product(models.Model):
 
     def __str__(self):
         return self.name
+
+    def build_search_name(self):
+        return normalize(f'{self.name} {self.category.name}')
+
+    def save(self, *args, **kwargs):
+        self.search_name = self.build_search_name()
+        super().save(*args, **kwargs)
 
     @property
     def is_available(self):

@@ -36,12 +36,13 @@ class Command(BaseCommand):
         for model in (OrderItem, Order, Promotion, Product, Customer, Category):
             model.objects.all().delete()
 
-        Category.objects.bulk_create(
+        categories = Category.objects.bulk_create(
             Category(id=int(r['category_id']), name=r['name'], description=r['description'] or '')
             for r in _read_csv(data_dir / 'categories.csv')
         )
+        categories_by_id = {c.id: c for c in categories}
 
-        Product.objects.bulk_create(
+        products = [
             Product(
                 id=int(r['product_id']),
                 name=r['name'],
@@ -54,7 +55,12 @@ class Command(BaseCommand):
                 created_at=_date(r['created_at']),
             )
             for r in _read_csv(data_dir / 'products.csv')
-        )
+        ]
+        # bulk_create não chama save(), então o campo de busca é preenchido aqui.
+        for product in products:
+            product.category = categories_by_id[product.category_id]
+            product.search_name = product.build_search_name()
+        Product.objects.bulk_create(products)
 
         Promotion.objects.bulk_create(
             Promotion(
