@@ -60,8 +60,21 @@ Casos especiais úteis para os exemplos de conversa:
 
 | Tema | Conflito | Suposição adotada |
 |---|---|---|
-| WhatsApp | (67) 3341-4444 (seção 1.2) × (67) 3321-4500 (seção 7) | A definir |
+| WhatsApp | (67) 3341-4444 (capa e seção 1.2, "Telefone / WhatsApp") × (67) 3321-4500 (seção 7) | **(67) 3341-4444**: aparece duas vezes, inclusive na tabela oficial de dados da empresa. O agente informa um só número para não confundir o cliente |
 | E-mail | contato@emporiodamusica.com.br (capa) × contato@empóriodamusica.com.br (seção 1.2) | Versão **sem acento** (domínio válido) |
 | Parcelamento | Tabela: "até 12x, parcela mínima R$ 100" × regras da seção 3.1, com faixas | Seção 3.1, mais detalhada |
 | Parcelamento até 3x | "sem valor mínimo (exceto abaixo de R$ 50)", texto ambíguo | Parcela mínima de R$ 50 |
 | Catálogo | Manual fala em "mais de 300 instrumentos"; o CSV tem 65 | O CSV é a fonte da verdade |
+
+## Suposições das ferramentas
+
+| Tema | Suposição |
+|---|---|
+| Data de recebimento | Não existe nos dados. Para pedidos entregues, usa-se `estimated_delivery` como data de recebimento |
+| Arrependimento (7 dias) | Vale para todos os pedidos do sistema (são compras com envio, portanto online) |
+| Troca por preferência (7 dias) | O manual não diz desde quando; conta-se do recebimento |
+| Troca por defeito (30 dias) | Conta-se da data da compra (`order_date`), como diz o manual |
+| Produto descontinuado com estoque | Não é vendável (política 7.3: "não faz mais parte do catálogo") |
+| `coming_soon` com estoque | Não é vendável ainda |
+| Mais de uma promoção ativa no mesmo produto | Vale a de maior desconto (promoções não são cumulativas) |
+| Frete grátis "acima de R$ 500" | Estritamente maior que R$ 500; o mesmo vale para "acima de R$ 2.000" na combinação de formas de pagamento |

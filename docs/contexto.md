@@ -51,6 +51,12 @@ Detalhes e inconsistências em [dados.md](dados.md).
 | 2026-11-02 | Módulo genérico `llm/` (qualquer provedor compatível com a API da OpenAI) + testes |
 | 2026-11-02 | Chamada real validada via OpenRouter (`nvidia/nemotron-3-ultra-550b-a55b:free`), texto e function calling |
 | 2026-11-02 | Postgres local configurado; migrations e `load_data` validados no Postgres |
+| 2026-11-02 | Ferramentas de dados (`agent/tools.py`) e regras de negócio em `store/`; 41 testes passando em Postgres e SQLite |
+| 2026-11-02 | Teste com LLM real: escolheu a ferramenta certa em "violões até R$ 1000" e "devolver pedido 4" e aplicou os prazos corretamente |
+| 2026-11-02 | Base de conhecimento das políticas (`agent/knowledge/`) + ferramenta `consultar_politicas` + horário de funcionamento; 47 testes |
+| 2026-11-02 | Agente LangGraph (`agent/graph.py`), system prompt, histórico persistido em Postgres e CLI `manage.py chat`; 55 testes |
+| 2026-11-02 | UI de chat web (template Django + JS), conversa por sessão do navegador; 61 testes |
+| 2026-11-02 | 5 conversas de exemplo em `examples/`, geradas pelo comando `generate_examples` com o LLM real |
 
 Ambiente de desenvolvimento: Windows, Python 3.14 e uma **instância Postgres 16 dedicada ao
 projeto**, na porta 5433, separada do serviço do Windows na 5432. Os dados ficam em

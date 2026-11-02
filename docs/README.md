@@ -9,3 +9,4 @@ Contexto vivo do projeto: atualizar estes arquivos a cada decisão ou etapa conc
 | [arquitetura.md](arquitetura.md) | Estrutura de pastas, componentes e fluxo do agente |
 | [dados.md](dados.md) | Descrição dos dados, regras de negócio e inconsistências encontradas |
 | [llm.md](llm.md) | Como usar e configurar o módulo genérico de LLM |
+| [limitacoes.md](limitacoes.md) | Limitações conhecidas (técnicas e observadas nas conversas reais) |
