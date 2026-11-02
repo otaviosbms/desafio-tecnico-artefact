@@ -49,6 +49,7 @@ Detalhes e inconsistências em [dados.md](dados.md).
 | 2026-11-02 | Projeto Django criado (`config/`), dados copiados para `data/` |
 | 2026-11-02 | App `store` com models e comando `load_data` (validado em SQLite) |
 | 2026-11-02 | Módulo genérico `llm/` (qualquer provedor compatível com a API da OpenAI) + testes |
+| 2026-11-02 | Chamada real validada via OpenRouter (`nvidia/nemotron-3-ultra-550b-a55b:free`), texto e function calling |
 
 Ambiente de desenvolvimento: Windows, Python 3.14, **Postgres 16 local** (serviço do Windows).
 O `docker-compose.yml` existe como alternativa para quem for rodar o projeto.

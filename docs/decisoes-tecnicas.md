@@ -29,6 +29,15 @@ Cada decisão traz o motivo e as alternativas descartadas. Esta seção vira a b
 - **Alternativas:** `langchain-openai` (mais uma camada de abstração e dependência) e LiteLLM
   (bom, mas desnecessário quando o padrão OpenAI já cobre os provedores desejados).
 
+### Modelo em uso
+
+- **OpenRouter** com `nvidia/nemotron-3-ultra-550b-a55b:free`: gratuito e com suporte a function
+  calling. Na chamada de teste, escolheu a ferramenta certa, com argumentos corretos, e redigiu
+  a resposta final com os dados retornados.
+- **Ponto de atenção:** latência de ~80–95 s por chamada nos testes (modelo grande em tier
+  gratuito). Um turno com ferramentas faz pelo menos 2 chamadas, então o timeout foi elevado
+  para 180 s. Para a demo, vale comparar com um modelo menor ou pago; a troca é só no `.env`.
+
 ## 4. LangGraph para orquestrar o agente (planejado)
 
 - **Motivo:** estado explícito, fácil adicionar nós (guardrail, roteamento) e checkpointer em
