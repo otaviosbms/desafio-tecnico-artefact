@@ -19,8 +19,9 @@ agent/           o agente de atendimento
   prompts.py     system prompt (persona + regras + contexto de data/hora)
   graph.py       grafo LangGraph: agent <-> tools, limites e fallbacks
   service.py     StoreAgent.reply/history + checkpointer (Postgres ou memória)
-  views.py, urls.py             UI de chat (/) e API POST /api/mensagem/
-  templates/agent/chat.html, static/agent/   front (HTML + CSS + JS puro)
+  clock.py       relógio do agente (data/hora simulada para testes)
+  views.py, urls.py             ambiente de testes (/) e API: mensagem, contexto, conversa
+  templates/agent/chat.html, static/agent/   front (HTML + CSS + JS puro, 3 painéis responsivos)
   management/commands/chat.py   CLI de conversa
   management/commands/generate_examples.py   gera examples/*.md com o agente real
 llm/             integração genérica com LLMs compatíveis com o SDK da OpenAI

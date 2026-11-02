@@ -57,6 +57,7 @@ Detalhes e inconsistências em [dados.md](dados.md).
 | 2026-11-02 | Agente LangGraph (`agent/graph.py`), system prompt, histórico persistido em Postgres e CLI `manage.py chat`; 55 testes |
 | 2026-11-02 | UI de chat web (template Django + JS), conversa por sessão do navegador; 61 testes |
 | 2026-11-02 | 5 conversas de exemplo em `examples/`, geradas pelo comando `generate_examples` com o LLM real |
+| 2026-11-02 | UI virou um ambiente de testes: configuração (modelo, temperatura, data simulada, cenários), inspetor (rastro, prompt, ferramentas), layout responsivo; 69 testes |
 
 Ambiente de desenvolvimento: Windows, Python 3.14 e uma **instância Postgres 16 dedicada ao
 projeto**, na porta 5433, separada do serviço do Windows na 5432. Os dados ficam em

@@ -151,17 +151,44 @@ Cada decisão traz o motivo e as alternativas descartadas. Esta seção vira a b
 
 - **CLI:** `python manage.py chat`, interativo ou com `-m` para conversas roteirizadas; `--show-tools`
   mostra as ferramentas chamadas.
-- **UI web:** template Django + JavaScript puro (`agent/templates/agent/chat.html`,
-  `agent/static/agent/`), sem framework de front nem dependência de CDN.
-  - **Sessão:** cada sessão do navegador tem um `thread_id`, guardado na sessão do Django; o
-    histórico volta ao recarregar a página. "Nova conversa" gera outro `thread_id`.
-  - **API:** `POST /api/mensagem/` com JSON `{texto}` devolve `{resposta, ferramentas}`.
-    Exige CSRF e limita a mensagem a 2.000 caracteres.
-  - **Transparência:** abaixo de cada resposta aparecem as ferramentas consultadas, com os
-    argumentos no tooltip. Ajuda o avaliador a ver quando o agente buscou dados ou políticas.
-  - **Segurança:** o markdown mínimo (negrito, itálico, listas) é renderizado só depois de escapar
-    o HTML, para evitar XSS a partir do texto do modelo.
-  - **Usabilidade:** sugestões de perguntas iniciais, indicador de "digitando", tema claro/escuro
-    automático e layout responsivo.
+- **UI web, um ambiente de testes do agente** (`agent/templates/agent/chat.html`,
+  `agent/static/agent/`): template Django com JavaScript puro, sem framework nem CDN. A ideia é
+  facilitar a inspeção e a experimentação, não só simular o chat do cliente. Tem três painéis:
+  - **Configuração:**
+    - **conversa:** id da thread (copiar, abrir uma existente, por exemplo do CLI), nova conversa
+      e exportação em Markdown;
+    - **modelo e temperatura:** podem ser trocados por mensagem; provedor e chave vêm sempre do
+      `.env`;
+    - **data/hora simulada:** com presets, afeta o horário da loja, os prazos de pedidos e o
+      system prompt;
+    - **exibição:** opções de visualização e tema;
+    - **cenários de teste:** perguntas prontas, agrupadas por assunto;
+    - **dados de teste:** pedidos e e-mails fictícios do desafio; só aparecem com `DEBUG=True`.
+  - **Conversa:** etiquetas por resposta (ferramentas, tempo, chamadas ao LLM, tokens, erro) e
+    um contador de tempo enquanto o modelo responde.
+  - **Inspetor:**
+    - **Rastro:** por mensagem, cada chamada ao modelo (duração, tokens, `finish_reason`,
+      ferramentas pedidas, erro) e a cada ferramenta (argumentos, resultado, duração);
+    - **Prompt:** o system prompt exato para a data em uso;
+    - **Ferramentas:** os schemas enviados ao modelo.
+- **Responsivo:**
+  - **desktop (1200 px ou mais):** 3 colunas;
+  - **tablet (900 a 1199 px):** o inspetor vira gaveta;
+  - **celular:** um painel por vez, com navegação inferior e contador de novidades no inspetor.
+  - Testado em 1280, 1024 e 375 px, sem rolagem horizontal.
+- **Backend do ambiente de testes:**
+  - **rastro:** é guardado no estado do grafo (`trace`), separado de `messages`. Nunca vai para
+    o LLM e é restaurado junto com o histórico ao reabrir a conversa;
+  - **data/hora simulada:** vai na config da execução do LangGraph e chega às ferramentas por um
+    `ContextVar` (`agent/clock.py`);
+  - **modelo e temperatura:** cada combinação tem um `StoreAgent` em cache, e todos compartilham
+    o mesmo checkpointer, então trocar de modelo no meio da conversa mantém o histórico;
+  - **endpoints:** `GET /api/contexto/` (prompt, ferramentas e situação da loja para uma data) e
+    `POST /api/conversa/` (abrir uma thread).
+- **Segurança:**
+  - **XSS:** o markdown é renderizado só depois de escapar o HTML;
+  - **CSRF:** exigido nos POSTs;
+  - **validação:** nome de modelo, temperatura (0 a 2), data e id de thread são validados;
+  - **dados pessoais:** os dados de teste com e-mails só aparecem em `DEBUG`.
 - **Limitação:** a resposta chega de uma vez, sem streaming, e o modelo gratuito pode levar
   minutos. Streaming (SSE) com os eventos do LangGraph seria a próxima melhoria.
