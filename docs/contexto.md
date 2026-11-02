@@ -50,8 +50,17 @@ Detalhes e inconsistências em [dados.md](dados.md).
 | 2026-11-02 | App `store` com models e comando `load_data` (validado em SQLite) |
 | 2026-11-02 | Módulo genérico `llm/` (qualquer provedor compatível com a API da OpenAI) + testes |
 | 2026-11-02 | Chamada real validada via OpenRouter (`nvidia/nemotron-3-ultra-550b-a55b:free`), texto e function calling |
+| 2026-11-02 | Postgres local configurado; migrations e `load_data` validados no Postgres |
 
-Ambiente de desenvolvimento: Windows, Python 3.14, **Postgres 16 local** (serviço do Windows).
-O `docker-compose.yml` existe como alternativa para quem for rodar o projeto.
+Ambiente de desenvolvimento: Windows, Python 3.14 e uma **instância Postgres 16 dedicada ao
+projeto**, na porta 5433, separada do serviço do Windows na 5432. Os dados ficam em
+`C:\Users\Otavi\pgdata\emporio` e o acesso é com o usuário `emporio` (senha no `.env`).
+Essa instância não é um serviço, então precisa ser iniciada depois de reiniciar o PC:
+
+```bash
+"C:\Program Files\PostgreSQL\16\bin\pg_ctl.exe" -D C:\Users\Otavi\pgdata\emporio -o "-p 5433" -l C:\Users\Otavi\pgdata\emporio\server.log start
+```
+
+Para parar, use `pg_ctl ... stop`. O `docker-compose.yml` continua como alternativa para quem for rodar o projeto.
 
 Próximos passos: ver o roadmap (fora do repositório, em `Downloads/roadmap-desafio-artefact`).
