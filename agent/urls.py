@@ -8,4 +8,6 @@ urlpatterns = [
     path('', views.chat, name='chat'),
     path('nova-conversa/', views.new_conversation, name='new_conversation'),
     path('api/mensagem/', views.send_message, name='send_message'),
+    path('api/contexto/', views.context, name='context'),
+    path('api/conversa/', views.open_conversation, name='open_conversation'),
 ]

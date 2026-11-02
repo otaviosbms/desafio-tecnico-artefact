@@ -2,46 +2,150 @@
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Empório da Música — Atendimento</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Empório da Música — Ambiente de testes do agente</title>
   <link rel="stylesheet" href="{% static 'agent/chat.css' %}">
 </head>
 <body>
-  <div class="app">
-    <header class="header">
+  {% csrf_token %}
+  <div class="app" id="app" data-view="chat">
+
+    <header class="topbar">
       <div class="brand">
-        <div class="logo" aria-hidden="true">♪</div>
-        <div>
-          <h1>Empório da Música</h1>
-          <p>Assistente virtual · Sua música começa aqui.</p>
+        <span class="logo" aria-hidden="true">♪</span>
+        <div class="brand-text">
+          <strong>Empório da Música</strong>
+          <span>Ambiente de testes do agente</span>
         </div>
       </div>
-      <form method="post" action="{% url 'agent:new_conversation' %}">
-        {% csrf_token %}
-        <button type="submit" class="ghost">Nova conversa</button>
-      </form>
+      <div class="status-pills" aria-label="Configuração ativa">
+        <span class="pill" id="pill-model" title="Modelo em uso"></span>
+        <span class="pill" id="pill-clock" title="Data/hora usada pelo agente"></span>
+        <span class="pill" id="pill-store" title="Situação da loja na data/hora usada"></span>
+      </div>
+      <button type="button" class="icon-btn only-medium" data-open="inspector" aria-label="Abrir inspetor">⌕</button>
     </header>
 
-    <main id="messages" class="messages" aria-live="polite">
-      <div class="message assistant">
-        <div class="bubble">Oi! Sou o assistente virtual da Empório da Música. Posso te ajudar com preços, estoque, promoções, seus pedidos e as regras da loja. Como posso ajudar? 🎸</div>
+    <!-- Configuração -->
+    <aside class="panel panel-config" id="panel-config" aria-label="Configuração">
+      <div class="panel-head">
+        <h2>Configuração</h2>
       </div>
+      <div class="panel-body">
+
+        <details open class="section">
+          <summary>Conversa</summary>
+          <label class="field-label">Id da conversa (thread)</label>
+          <div class="row">
+            <code class="thread-id" id="thread-id"></code>
+            <button type="button" class="btn small" id="copy-thread" title="Copiar id">Copiar</button>
+          </div>
+          <div class="row wrap">
+            <button type="button" class="btn" id="new-conversation">Nova conversa</button>
+            <button type="button" class="btn" id="export-md">Exportar .md</button>
+          </div>
+          <label class="field-label" for="open-thread">Abrir conversa existente</label>
+          <form class="row" id="open-form">
+            <input type="text" id="open-thread" placeholder="ex.: cli-a42c7bfb" autocomplete="off">
+            <button type="submit" class="btn small">Abrir</button>
+          </form>
+        </details>
+
+        <details open class="section">
+          <summary>Modelo</summary>
+          <dl class="kv">
+            <dt>Provedor</dt><dd id="llm-provider"></dd>
+            <dt>Endpoint</dt><dd id="llm-endpoint" class="mono"></dd>
+          </dl>
+          <label class="field-label" for="model">Modelo</label>
+          <input type="text" id="model" list="model-options" autocomplete="off" spellcheck="false">
+          <datalist id="model-options"></datalist>
+          <p class="hint">Vazio = modelo do <code>.env</code>. Provedor e chave vêm sempre do <code>.env</code>.</p>
+          <div class="row between">
+            <label class="field-label" for="temperature">Temperatura: <output id="temperature-value"></output></label>
+            <label class="check"><input type="checkbox" id="temperature-default"> padrão</label>
+          </div>
+          <input type="range" id="temperature" min="0" max="2" step="0.1">
+        </details>
+
+        <details open class="section">
+          <summary>Data e hora simuladas</summary>
+          <input type="datetime-local" id="sim-time" aria-label="Data e hora simuladas">
+          <div class="chips" id="time-presets"></div>
+          <p class="hint">Afeta o horário da loja, os prazos de pedidos e o system prompt.</p>
+        </details>
+
+        <details class="section">
+          <summary>Exibição</summary>
+          <label class="check"><input type="checkbox" id="show-tools"> Ferramentas nas mensagens</label>
+          <label class="check"><input type="checkbox" id="show-metrics"> Tempo e tokens nas mensagens</label>
+          <label class="check"><input type="checkbox" id="enter-sends"> Enter envia (Shift+Enter quebra linha)</label>
+          <label class="check"><input type="checkbox" id="autosend"> Cenários enviam direto</label>
+          <label class="field-label" for="theme">Tema</label>
+          <select id="theme">
+            <option value="auto">Automático</option>
+            <option value="light">Claro</option>
+            <option value="dark">Escuro</option>
+          </select>
+        </details>
+
+        <details open class="section">
+          <summary>Cenários de teste</summary>
+          <div id="scenarios"></div>
+        </details>
+
+        <details class="section" id="test-data-section">
+          <summary>Dados de teste (pedidos)</summary>
+          <p class="hint">Clique para inserir número e e-mail na mensagem. Visível só com <code>DEBUG</code>.</p>
+          <div id="test-orders" class="orders"></div>
+        </details>
+      </div>
+    </aside>
+
+    <!-- Conversa -->
+    <main class="chat" id="panel-chat" aria-label="Conversa">
+      <div class="messages" id="messages" aria-live="polite"></div>
+      <form class="composer" id="composer">
+        <textarea id="input" rows="1" maxlength="2000" placeholder="Mensagem do cliente..." aria-label="Mensagem" required></textarea>
+        <button type="submit" class="btn primary" id="send">Enviar</button>
+      </form>
     </main>
 
-    <div id="suggestions" class="suggestions"{% if history %} hidden{% endif %}>
-      {% for suggestion in suggestions %}
-        <button type="button" class="chip">{{ suggestion }}</button>
-      {% endfor %}
-    </div>
+    <!-- Inspetor -->
+    <aside class="panel panel-inspector" id="panel-inspector" aria-label="Inspetor">
+      <div class="panel-head">
+        <div class="tabs" role="tablist">
+          <button type="button" role="tab" class="tab" data-tab="trace" aria-selected="true">Rastro</button>
+          <button type="button" role="tab" class="tab" data-tab="prompt" aria-selected="false">Prompt</button>
+          <button type="button" role="tab" class="tab" data-tab="tools" aria-selected="false">Ferramentas</button>
+        </div>
+        <button type="button" class="icon-btn only-medium" data-close aria-label="Fechar">✕</button>
+      </div>
+      <div class="panel-body">
+        <section class="tab-panel" data-panel="trace">
+          <div class="stats" id="stats"></div>
+          <div id="trace"></div>
+        </section>
+        <section class="tab-panel" data-panel="prompt" hidden>
+          <p class="hint" id="prompt-info"></p>
+          <pre class="code" id="system-prompt"></pre>
+        </section>
+        <section class="tab-panel" data-panel="tools" hidden>
+          <div id="tool-defs"></div>
+        </section>
+      </div>
+    </aside>
 
-    <form id="composer" class="composer">
-      <textarea id="input" rows="1" maxlength="2000" placeholder="Digite sua mensagem..." aria-label="Mensagem" required></textarea>
-      <button type="submit" id="send">Enviar</button>
-    </form>
+    <div class="scrim" id="scrim" hidden></div>
+
+    <nav class="bottom-nav" aria-label="Navegação">
+      <button type="button" data-view="config">Configuração</button>
+      <button type="button" data-view="chat">Conversa</button>
+      <button type="button" data-view="inspector">Inspetor</button>
+    </nav>
   </div>
 
-  {{ history|json_script:"history" }}
-  <script>window.SEND_URL = "{% url 'agent:send_message' %}";</script>
+  {{ page_data|json_script:"page-data" }}
   <script src="{% static 'agent/chat.js' %}"></script>
 </body>
 </html>
