@@ -8,9 +8,9 @@ O manual em PDF (data/politicas_da_loja.pdf) foi convertido à mão em seções 
 from functools import cache
 from pathlib import Path
 
-from django.utils import timezone
-
 from store.hours import store_status
+
+from . import clock
 
 KNOWLEDGE_DIR = Path(__file__).parent / 'knowledge'
 
@@ -42,5 +42,5 @@ def consultar_politicas(topicos):
 
     result = {'secoes': {topic: load_section(topic) for topic in dict.fromkeys(topicos)}}
     if 'horario' in topicos:
-        result['situacao_agora'] = store_status(timezone.localtime())
+        result['situacao_agora'] = store_status(clock.now())
     return result

@@ -9,15 +9,17 @@ O system prompt não é salvo: é montado a cada chamada, com a data/hora do mom
 import json
 import logging
 import operator
+import time
 from collections.abc import Callable
 from datetime import datetime
 from typing import Annotated, Any, TypedDict
 
-from django.utils import timezone
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 
 from llm import LLMClient, LLMError, Message, tool_result_message
 
+from . import clock
 from .prompts import build_system_prompt
 from .tools import Tool, execute_tool
 
@@ -35,6 +37,9 @@ FALLBACK_REPLY = (
 class AgentState(TypedDict):
     messages: Annotated[list[Message], operator.add]
     tool_rounds: int
+    # Eventos de execução (chamadas ao LLM e às ferramentas) para o inspetor da UI.
+    # Ficam fora de `messages`, então nunca são enviados ao LLM.
+    trace: Annotated[list[dict], operator.add]
 
 
 def trim_history(messages: list[Message], limit: int = MAX_HISTORY_MESSAGES) -> list[Message]:
@@ -52,34 +57,63 @@ def trim_history(messages: list[Message], limit: int = MAX_HISTORY_MESSAGES) -> 
     return messages[-1:]
 
 
-def build_graph(llm: LLMClient, tools: list[Tool], now: Callable[[], datetime] = timezone.localtime):
+def _turn(state: AgentState) -> int:
+    return sum(1 for m in state['messages'] if m['role'] == 'user')
+
+
+def _ms(start: float) -> int:
+    return round((time.perf_counter() - start) * 1000)
+
+
+def build_graph(llm: LLMClient, tools: list[Tool], now: Callable[[], datetime] = clock.now):
     definitions = [tool.definition() for tool in tools]
 
-    def agent(state: AgentState) -> dict[str, Any]:
-        messages = [{'role': 'system', 'content': build_system_prompt(now())}, *trim_history(state['messages'])]
+    def current_time(config: RunnableConfig) -> datetime:
+        # Data/hora simulada vem na config da execução (ver StoreAgent.reply).
+        return clock.parse(config.get('configurable', {}).get('agora')) or now()
+
+    def agent(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
+        system = build_system_prompt(current_time(config))
+        messages = [{'role': 'system', 'content': system}, *trim_history(state['messages'])]
         # Esgotou as rodadas: pede uma resposta final sem ferramentas.
         allow_tools = state.get('tool_rounds', 0) < MAX_TOOL_ROUNDS
+        event = {'turno': _turn(state), 'tipo': 'llm', 'modelo': llm.config.model, 'com_ferramentas': allow_tools}
+        start = time.perf_counter()
         try:
             response = llm.chat(messages, tools=definitions if allow_tools else None)
-        except LLMError:
+        except LLMError as exc:
             logger.exception('Falha ao chamar o LLM')
-            return {'messages': [{'role': 'assistant', 'content': FALLBACK_REPLY}]}
+            event.update(duracao_ms=_ms(start), erro=str(exc))
+            return {'messages': [{'role': 'assistant', 'content': FALLBACK_REPLY}], 'trace': [event]}
+        event.update(
+            duracao_ms=_ms(start),
+            tokens=response.usage,
+            finish_reason=response.finish_reason,
+            pediu_ferramentas=[call.name for call in response.tool_calls],
+        )
         if not response.tool_calls and not (response.content or '').strip():
-            return {'messages': [{'role': 'assistant', 'content': FALLBACK_REPLY}]}
-        return {'messages': [response.to_message()]}
+            event['erro'] = 'Resposta vazia do modelo.'
+            return {'messages': [{'role': 'assistant', 'content': FALLBACK_REPLY}], 'trace': [event]}
+        return {'messages': [response.to_message()], 'trace': [event]}
 
-    def run_tools(state: AgentState) -> dict[str, Any]:
-        results = []
-        for call in state['messages'][-1]['tool_calls']:
-            name = call['function']['name']
-            try:
-                arguments = json.loads(call['function']['arguments'] or '{}')
-                result = execute_tool(name, arguments, tools)
-            except ValueError as exc:
-                result = {'erro': f'Argumentos em JSON inválido: {exc}'}
-            logger.info('Ferramenta %s(%s)', name, call['function']['arguments'])
-            results.append(tool_result_message(call['id'], result))
-        return {'messages': results, 'tool_rounds': state.get('tool_rounds', 0) + 1}
+    def run_tools(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
+        results, events = [], []
+        with clock.frozen(clock.parse(config.get('configurable', {}).get('agora'))):
+            for call in state['messages'][-1]['tool_calls']:
+                name, raw = call['function']['name'], call['function']['arguments']
+                start = time.perf_counter()
+                try:
+                    arguments = json.loads(raw or '{}')
+                    result = execute_tool(name, arguments, tools)
+                except ValueError as exc:
+                    arguments, result = raw, {'erro': f'Argumentos em JSON inválido: {exc}'}
+                logger.info('Ferramenta %s(%s)', name, raw)
+                results.append(tool_result_message(call['id'], result))
+                events.append({
+                    'turno': _turn(state), 'tipo': 'ferramenta', 'nome': name,
+                    'argumentos': arguments, 'resultado': result, 'duracao_ms': _ms(start),
+                })
+        return {'messages': results, 'tool_rounds': state.get('tool_rounds', 0) + 1, 'trace': events}
 
     def route(state: AgentState) -> str:
         return 'tools' if state['messages'][-1].get('tool_calls') else END

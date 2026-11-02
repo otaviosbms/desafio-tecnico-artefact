@@ -11,8 +11,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
 
-from django.utils import timezone
-
+from agent import clock
 from agent.policies import TOPICS, consultar_politicas
 from llm import function_tool
 from store import catalog, orders, pricing
@@ -95,7 +94,7 @@ def consultar_pedido(numero_pedido, email_ou_telefone):
             'erro': 'Não encontramos um pedido com esse número para o e-mail/telefone informado. '
                     'Peça ao cliente para conferir os dados.'
         }
-    return orders.order_details(order, timezone.localdate())
+    return orders.order_details(order, clock.today())
 
 
 def _category_names() -> list[str]:
