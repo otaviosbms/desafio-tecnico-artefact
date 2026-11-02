@@ -1,5 +1,7 @@
 import json
+import os
 from datetime import datetime
+from types import SimpleNamespace
 from io import StringIO
 from unittest import mock
 from zoneinfo import ZoneInfo
@@ -10,11 +12,12 @@ from django.urls import reverse
 
 from langgraph.checkpoint.memory import InMemorySaver
 
+from agent import clock
 from agent.graph import FALLBACK_REPLY, MAX_TOOL_ROUNDS, trim_history
 from agent.policies import KNOWLEDGE_DIR, TOPICS, consultar_politicas
 from agent.service import AgentReply, StoreAgent
 from agent.tools import execute_tool, get_tools
-from llm import ChatResponse, LLMError, ToolCall
+from llm import ChatResponse, LLMConfig, LLMError, ToolCall
 from store.hours import store_status
 
 TZ = ZoneInfo('America/Campo_Grande')
@@ -113,7 +116,7 @@ class PoliciesTests(SimpleTestCase):
 
     def test_horario_inclui_situacao_atual(self):
         now = datetime(2026, 11, 8, 11, 0, tzinfo=TZ)
-        with mock.patch('agent.policies.timezone.localtime', return_value=now):
+        with clock.frozen(now):
             result = consultar_politicas(topicos=['horario'])
         self.assertFalse(result['situacao_agora']['aberta'])
 
@@ -135,6 +138,7 @@ class FakeLLM:
     def __init__(self, *responses):
         self.responses = list(responses)
         self.calls = []
+        self.config = LLMConfig(model='modelo-falso', api_key='x')
 
     def chat(self, messages, tools=None, **kwargs):
         self.calls.append({'messages': messages, 'tools': tools})
@@ -219,6 +223,30 @@ class AgentTests(TestCase):
         self.assertIn('erro', json.loads(llm.calls[1]['messages'][-1]['content']))
 
 
+    def test_rastro_registra_llm_e_ferramentas_por_turno(self):
+        llm = FakeLLM(calls_tool('detalhes_produto', {'produto': 'Takamine GD20'}), text('Custa R$ 2.199,00.'))
+        agent = self.make_agent(llm)
+        reply = agent.reply('t1', 'Quanto custa o Takamine GD20?')
+
+        self.assertEqual([e['tipo'] for e in reply.trace], ['llm', 'ferramenta', 'llm'])
+        self.assertEqual(reply.trace[0]['pediu_ferramentas'], ['detalhes_produto'])
+        self.assertEqual(reply.trace[1]['resultado']['preco'], 'R$ 2.199,00')
+        self.assertTrue(all(e['turno'] == 1 for e in reply.trace))
+        self.assertEqual(agent.trace('t1'), reply.trace)
+        # O rastro nunca vai para o LLM.
+        self.assertNotIn('duracao_ms', json.dumps(llm.calls[-1]['messages']))
+
+    def test_data_simulada_chega_ao_prompt_e_as_ferramentas(self):
+        args = {'numero_pedido': '4', 'email_ou_telefone': 'lucas.mendes@jmail.com'}
+        llm = FakeLLM(calls_tool('consultar_pedido', args), text('Está no prazo.'))
+        agent = StoreAgent(llm=llm, checkpointer=InMemorySaver())  # sem `now` fixo: usa o relógio
+        reply = agent.reply('t1', 'Posso devolver?', now=datetime(2025, 12, 24, 10, 0, tzinfo=TZ))
+
+        self.assertIn('24/12/2025, 10:00', llm.calls[0]['messages'][0]['content'])
+        prazos = reply.trace[1]['resultado']['prazos']
+        self.assertTrue(prazos['arrependimento']['dentro_do_prazo'])
+
+
 class TrimHistoryTests(SimpleTestCase):
     def test_corta_sempre_numa_mensagem_do_cliente(self):
         messages = [
@@ -238,56 +266,114 @@ class FakeAgent:
     def __init__(self, fail=False):
         self.threads = {}
         self.fail = fail
+        self.calls = []
+        self.llm = SimpleNamespace(config=LLMConfig(model='modelo-falso', api_key='x'))
 
-    def reply(self, thread_id, text):
+    def reply(self, thread_id, text, now=None):
+        self.calls.append({'thread': thread_id, 'texto': text, 'now': now})
         if self.fail:
             raise RuntimeError('boom')
         self.threads.setdefault(thread_id, []).extend([
             {'role': 'user', 'content': text}, {'role': 'assistant', 'content': f'eco: {text}'},
         ])
-        return AgentReply(text=f'eco: {text}', tool_calls=[{'nome': 'listar_promocoes', 'argumentos': {}}])
+        trace = [{'turno': 1, 'tipo': 'llm', 'duracao_ms': 5}]
+        return AgentReply(text=f'eco: {text}', tool_calls=[{'nome': 'listar_promocoes', 'argumentos': {}}],
+                          trace=trace, duration_ms=7)
 
     def history(self, thread_id):
         return self.threads.get(thread_id, [])
+
+    def trace(self, thread_id):
+        return []
 
 
 class ChatViewTests(TestCase):
     def setUp(self):
         self.agent = FakeAgent()
-        patcher = mock.patch('agent.views.get_agent', return_value=self.agent)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        self.get_agent = mock.patch('agent.views.get_agent', return_value=self.agent).start()
+        self.addCleanup(mock.patch.stopall)
+        env = {'LLM_PROVIDER': 'custom', 'LLM_BASE_URL': 'http://llm/v1', 'LLM_API_KEY': 'k', 'LLM_MODEL': 'modelo-env'}
+        mock.patch.dict(os.environ, env).start()
 
     def send(self, payload):
         return self.client.post(reverse('agent:send_message'), json.dumps(payload), content_type='application/json')
 
+    def page_data(self):
+        return self.client.get(reverse('agent:chat')).context['page_data']
+
     def test_pagina_inicial(self):
         response = self.client.get(reverse('agent:chat'))
-        self.assertContains(response, 'Empório da Música')
-        self.assertContains(response, 'Quanto custa o Takamine GD20?')  # sugestões
-        self.assertTrue(self.client.session['thread_id'].startswith('web-'))
+        self.assertContains(response, 'Ambiente de testes do agente')
+        data = response.context['page_data']
+        self.assertTrue(data['thread_id'].startswith('web-'))
+        self.assertEqual(data['llm']['modelo'], 'modelo-env')
+        self.assertIn('Quanto custa o Takamine GD20?', data['cenarios'][1]['mensagens'])
 
     def test_envia_mensagem_e_mantem_a_conversa_da_sessao(self):
         response = self.send({'texto': 'Oi'})
         self.assertEqual(response.json(), {
-            'resposta': 'eco: Oi', 'ferramentas': [{'nome': 'listar_promocoes', 'argumentos': {}}],
+            'resposta': 'eco: Oi',
+            'ferramentas': [{'nome': 'listar_promocoes', 'argumentos': {}}],
+            'rastro': [{'turno': 1, 'tipo': 'llm', 'duracao_ms': 5}],
+            'duracao_ms': 7,
+            'modelo': 'modelo-falso',
         })
-        thread = self.client.session['thread_id']
-        self.assertEqual(len(self.agent.history(thread)), 2)
+        self.assertEqual(self.page_data()['historico'][1]['content'], 'eco: Oi')
 
-        page = self.client.get(reverse('agent:chat'))
-        self.assertEqual(page.context['history'][1]['content'], 'eco: Oi')
+    def test_configuracao_da_mensagem(self):
+        self.send({'texto': 'Oi', 'config': {'modelo': 'outro/modelo:free', 'temperatura': 0.3, 'agora': '2026-11-08T11:00'}})
+        self.get_agent.assert_called_with('outro/modelo:free', 0.3)
+        now = self.agent.calls[-1]['now']
+        self.assertEqual((now.weekday(), now.hour, str(now.tzinfo)), (6, 11, 'America/Campo_Grande'))
+
+        # Modelo igual ao do .env usa o agente padrão.
+        self.send({'texto': 'Oi', 'config': {'modelo': 'modelo-env'}})
+        self.get_agent.assert_called_with(None, None)
+
+    def test_configuracao_invalida(self):
+        for config in [
+            {'modelo': 'rm -rf /'}, {'temperatura': 3}, {'temperatura': 'quente'},
+            {'agora': 'ontem'}, 'nao-e-objeto',
+        ]:
+            with self.subTest(config=config):
+                self.assertEqual(self.send({'texto': 'Oi', 'config': config}).status_code, 400)
 
     def test_nova_conversa_troca_a_thread(self):
         self.send({'texto': 'Oi'})
         old = self.client.session['thread_id']
-        self.client.post(reverse('agent:new_conversation'))
-        self.client.get(reverse('agent:chat'))
-        self.assertNotEqual(self.client.session['thread_id'], old)
+        response = self.client.post(reverse('agent:new_conversation'), HTTP_ACCEPT='application/json')
+        self.assertNotEqual(response.json()['thread_id'], old)
+        self.assertEqual(self.client.session['thread_id'], response.json()['thread_id'])
+
+    def test_abrir_conversa_existente(self):
+        self.agent.threads['cli-123'] = [{'role': 'user', 'content': 'Oi'}, {'role': 'assistant', 'content': 'Olá'}]
+        response = self.client.post(reverse('agent:open_conversation'), json.dumps({'thread_id': 'cli-123'}),
+                                    content_type='application/json')
+        self.assertEqual(response.json()['historico'][1]['content'], 'Olá')
+        self.assertEqual(self.client.session['thread_id'], 'cli-123')
+        bad = self.client.post(reverse('agent:open_conversation'), json.dumps({'thread_id': '../x'}),
+                               content_type='application/json')
+        self.assertEqual(bad.status_code, 400)
+
+    def test_contexto_com_data_simulada(self):
+        response = self.client.get(reverse('agent:context'), {'agora': '2026-11-08T11:00'})
+        data = response.json()
+        self.assertFalse(data['situacao_loja']['aberta'])
+        self.assertIn('domingo, 08/11/2026, 11:00', data['system_prompt'])
+        self.assertIn('consultar_pedido', [t['name'] for t in data['ferramentas']])
+        self.assertEqual(self.client.get(reverse('agent:context'), {'agora': 'x'}).status_code, 400)
+
+    def test_dados_de_teste_so_em_debug(self):
+        call_command('load_data', stdout=StringIO())
+        with self.settings(DEBUG=True):
+            self.assertEqual(len(self.page_data()['pedidos_teste']), 20)
+        with self.settings(DEBUG=False):
+            self.assertEqual(self.page_data()['pedidos_teste'], [])
 
     def test_validacoes(self):
         self.assertEqual(self.send({'texto': '   '}).status_code, 400)
         self.assertEqual(self.send({'texto': 'x' * 2001}).status_code, 400)
+        self.assertEqual(self.send(['lista']).status_code, 400)
         bad = self.client.post(reverse('agent:send_message'), 'não é json', content_type='application/json')
         self.assertEqual(bad.status_code, 400)
         self.assertEqual(self.client.get(reverse('agent:send_message')).status_code, 405)
