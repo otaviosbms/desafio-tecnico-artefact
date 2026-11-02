@@ -1,0 +1,47 @@
+{% load static %}<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Empório da Música — Atendimento</title>
+  <link rel="stylesheet" href="{% static 'agent/chat.css' %}">
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div class="brand">
+        <div class="logo" aria-hidden="true">♪</div>
+        <div>
+          <h1>Empório da Música</h1>
+          <p>Assistente virtual · Sua música começa aqui.</p>
+        </div>
+      </div>
+      <form method="post" action="{% url 'agent:new_conversation' %}">
+        {% csrf_token %}
+        <button type="submit" class="ghost">Nova conversa</button>
+      </form>
+    </header>
+
+    <main id="messages" class="messages" aria-live="polite">
+      <div class="message assistant">
+        <div class="bubble">Oi! Sou o assistente virtual da Empório da Música. Posso te ajudar com preços, estoque, promoções, seus pedidos e as regras da loja. Como posso ajudar? 🎸</div>
+      </div>
+    </main>
+
+    <div id="suggestions" class="suggestions"{% if history %} hidden{% endif %}>
+      {% for suggestion in suggestions %}
+        <button type="button" class="chip">{{ suggestion }}</button>
+      {% endfor %}
+    </div>
+
+    <form id="composer" class="composer">
+      <textarea id="input" rows="1" maxlength="2000" placeholder="Digite sua mensagem..." aria-label="Mensagem" required></textarea>
+      <button type="submit" id="send">Enviar</button>
+    </form>
+  </div>
+
+  {{ history|json_script:"history" }}
+  <script>window.SEND_URL = "{% url 'agent:send_message' %}";</script>
+  <script src="{% static 'agent/chat.js' %}"></script>
+</body>
+</html>
