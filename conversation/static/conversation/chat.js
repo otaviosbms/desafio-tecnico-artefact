@@ -18,10 +18,6 @@
     guardrailsModelo: '',
     roteadorModo: '',
     roteadorModelo: '',
-    showTools: true,
-    showMetrics: true,
-    enterSends: true,
-    autosend: false,
     theme: 'auto',
   };
   const settings = Object.assign({}, DEFAULTS, loadSettings());
@@ -132,9 +128,7 @@
   function renderConversation() {
     messages.innerHTML = '';
     if (!turns.length) {
-      messages.appendChild(el('div', { class: 'empty', html:
-        '<strong>Nenhuma mensagem ainda</strong>Escreva como se fosse um cliente ou escolha um cenário de teste ' +
-        'na configuração. O inspetor mostra cada chamada ao modelo e às ferramentas.' }));
+      messages.appendChild(emptyState());
       return;
     }
     turns.forEach((turn) => {
@@ -142,6 +136,19 @@
       if (turn.assistente || turn.erro) messages.appendChild(assistantMessage(turn));
     });
     scrollToBottom();
+  }
+
+  function emptyState() {
+    const suggestions = page.cenarios.map((g) => g.mensagens[0]).slice(0, 4);
+    return el('div', { class: 'empty' }, [
+      el('span', { class: 'empty-logo', text: '♪' }),
+      el('strong', { text: 'Como posso ajudar?' }),
+      el('p', { text: 'Escreva como um cliente da loja ou comece por uma sugestão. ' +
+        'O inspetor mostra cada chamada ao modelo, às ferramentas e o que cada estágio decidiu.' }),
+      el('div', { class: 'suggestions' }, suggestions.map((text) => el('button', {
+        type: 'button', class: 'suggestion', text, onclick: () => sendMessage(text),
+      }))),
+    ]);
   }
 
   function userMessage(text) {
@@ -153,6 +160,7 @@
       class: 'message assistant' + (turn.erro ? ' error' : '') + (selectedTurn === turn.turno ? ' selected' : ''),
       'data-turn': turn.erro ? null : turn.turno,
     }, [el('div', { class: 'bubble', html: renderMarkdown(turn.erro || turn.assistente) })]);
+    node.prepend(el('span', { class: 'avatar', text: '♪', 'aria-hidden': 'true' }));
 
     if (!turn.erro) {
       const llmCalls = turn.rastro.filter((e) => e.tipo === 'llm').length;
@@ -177,13 +185,15 @@
 
   function showTyping() {
     const started = Date.now();
-    const bubble = el('div', { class: 'bubble', text: 'Pensando… 0 s' });
-    const node = el('div', { class: 'message assistant typing' }, [bubble]);
+    const bubble = el('div', { class: 'bubble' }, [el('span', { class: 'dots', 'aria-hidden': 'true' }),
+      el('span', { class: 'elapsed', text: '0 s' })]);
+    const node = el('div', { class: 'message assistant typing' }, [
+      el('span', { class: 'avatar', text: '♪', 'aria-hidden': 'true' }), bubble]);
     messages.querySelector('.empty')?.remove();
     messages.appendChild(node);
     scrollToBottom();
     const timer = setInterval(() => {
-      bubble.textContent = 'Pensando… ' + Math.round((Date.now() - started) / 1000) + ' s';
+      bubble.querySelector('.elapsed').textContent = Math.round((Date.now() - started) / 1000) + ' s';
     }, 1000);
     return () => { clearInterval(timer); node.remove(); };
   }
@@ -256,7 +266,7 @@
     busy = value;
     input.disabled = value;
     sendBtn.disabled = value;
-    document.querySelectorAll('.scenario-group .chip').forEach((b) => { b.disabled = value; });
+    document.querySelectorAll('.scenario, .suggestion').forEach((b) => { b.disabled = value; });
   }
 
   function autoResize() {
@@ -266,7 +276,7 @@
 
   $('composer').addEventListener('submit', (e) => { e.preventDefault(); sendMessage(input.value); });
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey && settings.enterSends) {
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       $('composer').requestSubmit();
     }
@@ -596,9 +606,7 @@
 
     // Modelo
     const llm = page.llm || {};
-    $('llm-provider').textContent = llm.erro ? 'não configurado' : llm.provedor;
-    $('llm-endpoint').textContent = llm.erro || llm.base_url;
-    $('model').placeholder = llm.modelo || '';
+    $('model').placeholder = llm.erro ? 'LLM não configurado' : (llm.modelo || '');
     $('model').value = settings.modelo;
     if (llm.modelo) $('model-options').appendChild(el('option', { value: llm.modelo }));
     $('model').addEventListener('change', () => {
@@ -628,16 +636,22 @@
     });
     syncTemperature();
 
-    // Estágios
+    // Estágios: controle segmentado (padrão do .env, off, shadow, enforce)
     const stages = page.estagios || { modos: [], guardrails: {}, roteador: {} };
     [['guardrails', 'guardrailsModo', 'guardrailsModelo'], ['roteador', 'roteadorModo', 'roteadorModelo']]
       .forEach(([stage, modeKey, modelKey]) => {
         const defaults = stages[stage] || {};
-        const select = $('stage-' + stage + '-mode');
-        select.appendChild(el('option', { value: '', text: 'padrão (' + (defaults.modo || '?') + ')' }));
-        stages.modos.forEach((m) => select.appendChild(el('option', { value: m, text: m })));
-        select.value = settings[modeKey];
-        select.addEventListener('change', () => { settings[modeKey] = select.value; saveSettings(); renderModelPill(); });
+        const group = $('stage-' + stage + '-mode');
+        const options = [['', 'padrão', 'Padrão do .env: ' + (defaults.modo || '?')]]
+          .concat(stages.modos.map((m) => [m, m, null]));
+        const sync = () => group.querySelectorAll('button').forEach((b) => {
+          b.setAttribute('aria-checked', String(b.dataset.value === settings[modeKey]));
+        });
+        options.forEach(([value, label, title]) => group.appendChild(el('button', {
+          type: 'button', role: 'radio', 'data-value': value, text: label, title,
+          onclick: () => { settings[modeKey] = value; saveSettings(); sync(); renderModelPill(); },
+        })));
+        sync();
         const model = $('stage-' + stage + '-model');
         model.placeholder = defaults.modelo || 'modelo';
         model.value = settings[modelKey];
@@ -667,24 +681,27 @@
     });
     syncTime();
 
-    // Exibição
-    [['show-tools', 'showTools'], ['show-metrics', 'showMetrics'], ['enter-sends', 'enterSends'], ['autosend', 'autosend']]
-      .forEach(([id, key]) => {
-        const box = $(id);
-        box.checked = settings[key];
-        box.addEventListener('change', () => { settings[key] = box.checked; saveSettings(); applyDisplay(); });
-      });
-    $('theme').value = settings.theme;
-    $('theme').addEventListener('change', () => { settings.theme = $('theme').value; saveSettings(); applyDisplay(); });
+    // Tema: alterna entre claro e escuro (começa pelo do sistema)
+    $('theme-toggle').addEventListener('click', () => {
+      const dark = settings.theme === 'auto' ? window.matchMedia('(prefers-color-scheme: dark)').matches
+        : settings.theme === 'dark';
+      settings.theme = dark ? 'light' : 'dark';
+      saveSettings();
+      applyDisplay();
+    });
 
-    // Cenários
+    // Cenários: um grupo aberto por vez; clicar põe a mensagem no campo de texto
     const scenarios = $('scenarios');
-    page.cenarios.forEach((group) => {
-      const box = el('div', { class: 'scenario-group' }, [el('h3', { text: group.grupo })]);
+    page.cenarios.forEach((group, index) => {
+      const box = el('details', { class: 'scenario-group', open: index === 0 ? '' : null }, [
+        el('summary', { text: group.grupo }),
+      ]);
       group.mensagens.forEach((text) => box.appendChild(el('button', {
-        type: 'button', class: 'chip', text,
-        onclick: () => (settings.autosend ? sendMessage(text) : insertText(text)),
+        type: 'button', class: 'scenario', text, onclick: () => insertText(text),
       })));
+      box.addEventListener('toggle', () => {
+        if (box.open) document.querySelectorAll('.scenario-group').forEach((d) => { if (d !== box) d.open = false; });
+      });
       scenarios.appendChild(box);
     });
 
@@ -693,13 +710,10 @@
       $('test-data-section').hidden = true;
     } else {
       page.pedidos_teste.forEach((o) => $('test-orders').appendChild(el('button', {
-        type: 'button', class: 'order', title: o.cliente + ' · ' + o.telefone,
+        type: 'button', class: 'order', title: o.status + ' · ' + o.email,
         onclick: () => insertText('Pedido ' + o.numero + ', e-mail ' + o.email),
-      }, [
-        el('b', { text: '#' + o.numero }),
-        el('span', { text: o.status }),
-        el('span', { text: o.email }),
-      ])));
+        text: '#' + o.numero,
+      })));
     }
 
     // Conversas
@@ -707,18 +721,6 @@
       if (busy) return;
       const { ok, data } = await postJson(page.urls.nova, {}, { Accept: 'application/json' });
       if (ok) loadConversation(data.thread_id, [], [], []);
-    });
-    $('open-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const id = $('open-thread').value.trim();
-      if (!id || busy) return;
-      const { ok, data } = await postJson(page.urls.abrir, { thread_id: id });
-      if (ok) {
-        $('open-thread').value = '';
-        loadConversation(data.thread_id, data.historico, data.rastro, data.decisoes);
-      } else {
-        alert(data.erro || 'Não foi possível abrir a conversa.');
-      }
     });
     $('export-md').addEventListener('click', exportMarkdown);
   }
@@ -734,8 +736,6 @@
   }
 
   function applyDisplay() {
-    app.classList.toggle('show-tools', settings.showTools);
-    app.classList.toggle('show-metrics', settings.showMetrics);
     if (settings.theme === 'auto') document.documentElement.removeAttribute('data-theme');
     else document.documentElement.setAttribute('data-theme', settings.theme);
   }
