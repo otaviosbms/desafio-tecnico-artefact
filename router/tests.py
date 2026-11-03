@@ -6,7 +6,7 @@ from conversation.management.commands.eval_router import DEFAULT_DATASET, load_c
 from llm import ChatResponse, LLMConfig, LLMError, LLMService
 from router.intents import INTENT_TOOLS, Intent, tools_for
 from router.prompts import build_messages
-from core.text import is_small_talk
+from core.text import has_contact, is_small_talk
 from router.service import IntentRouter
 from tools.handlers import TOOLS
 
@@ -49,6 +49,12 @@ class IntentsTests(SimpleTestCase):
         for text in ['ok', 'sim', 'oi, quanto custa o violão?', 'bom dia, cadê meu pedido?', '', '???']:
             self.assertFalse(is_small_talk(text), text)
 
+    def test_dados_de_contato(self):
+        for text in ['lucas.mendes@jmail.com', '(67) 99123-4567', 'meu fone é 67991234567']:
+            self.assertTrue(has_contact(text), text)
+        for text in ['É o pedido 4', 'Quanto custa o Takamine GD20?', 'R$ 2.199,00', 'até R$1000']:
+            self.assertFalse(has_contact(text), text)
+
 
 class IntentRouterTests(SimpleTestCase):
     def classify(self, router_, message='quero devolver o pedido 4', last=None):
@@ -85,6 +91,17 @@ class IntentRouterTests(SimpleTestCase):
         self.assertEqual(decision.source, 'shortcut')
         self.assertEqual(decision.allowed_tools, [])
         self.assertEqual(client.calls, [])
+
+    def test_contato_sozinho_inclui_pedido(self):
+        r, _ = router({'intents': ['saudacao_conversa'], 'confidence': 0.7, 'reasoning': 'só um e-mail'})
+        decision, _ = self.classify(r, 'lucas.mendes@jmail.com')
+        self.assertEqual(decision.intents, ['pedido'])
+        self.assertIn('consultar_pedido', decision.allowed_tools)
+
+    def test_saudacao_junto_de_outra_intencao_sai(self):
+        r, _ = router({'intents': ['saudacao_conversa', 'catalogo'], 'confidence': 0.9, 'reasoning': 'oi + pergunta'})
+        decision, _ = self.classify(r, 'Oi! Tem violão?')
+        self.assertEqual(decision.intents, ['catalogo'])
 
     def test_falha_do_llm_libera_tudo(self):
         r, _ = router(LLMError('timeout'))

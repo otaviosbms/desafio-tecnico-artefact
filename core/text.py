@@ -23,6 +23,15 @@ def words(text: str) -> list[str]:
     return re.findall(r'[a-z0-9]+', plain(text))
 
 
+EMAIL = re.compile(r'[\w.+-]+@[\w-]+\.[\w.-]+')
+PHONE = re.compile(r'(?:\(?\d{2}\)?\s*)?9?\d{4}[\s-]?\d{4}')
+
+
+def has_contact(message: str) -> bool:
+    """Tem e-mail ou telefone (o dado que a consulta de pedido pede ao cliente)."""
+    return bool(EMAIL.search(message) or PHONE.search(message))
+
+
 def is_small_talk(message: str) -> bool:
     found = words(message)
     return 0 < len(found) <= MAX_SMALL_TALK_WORDS and all(w in SMALL_TALK_WORDS for w in found)

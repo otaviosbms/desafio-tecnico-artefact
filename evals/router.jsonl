@@ -16,7 +16,7 @@
 {"id": "cat-4", "mensagem": "Vocês têm teclado pra criança?", "intencoes": ["catalogo"]}
 {"id": "cat-5", "mensagem": "tem ukulele soprano em estoque?", "intencoes": ["catalogo"]}
 {"id": "pre-1", "mensagem": "e no PIX?", "ultima_resposta": "O Yamaha C40 está por R$ 899,00 e tem em estoque. Quer saber as formas de pagamento?", "intencoes": ["preco_pagamento"]}
-{"id": "pre-2", "mensagem": "Se eu levar dois violões Yamaha C40 quanto fica?", "intencoes": ["preco_pagamento"]}
+{"id": "pre-2", "mensagem": "Se eu levar dois violões Yamaha C40 quanto fica?", "intencoes": ["preco_pagamento"], "alternativas": [["catalogo", "preco_pagamento"]]}
 {"id": "pre-3", "mensagem": "Parcela em quantas vezes sem juros?", "intencoes": ["preco_pagamento"], "alternativas": [["politicas"], ["politicas", "preco_pagamento"]]}
 {"id": "pre-4", "mensagem": "Quanto é o frete pra entregar uma bateria aqui em Campo Grande?", "intencoes": ["preco_pagamento"], "alternativas": [["politicas"], ["politicas", "preco_pagamento"]]}
 {"id": "ped-1", "mensagem": "Cadê meu pedido 8? Já faz uma semana", "intencoes": ["pedido"]}

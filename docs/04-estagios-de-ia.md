@@ -72,6 +72,9 @@ o código decide as ferramentas pelo mapa fixo de `router/intents.py`:
   `# Escopo desta resposta` e o executor recusa as outras (`tool_not_allowed`).
 - **Fail-open:** LLM indisponível, saída fora do schema ou confiança abaixo de
   `ROUTER_MIN_CONFIDENCE` (0,5) liberam todas as ferramentas, com `DEGRADATION` (`router_fail_open`).
+- **Correções determinísticas** sobre a saída do LLM: mensagem com e-mail ou telefone ganha a
+  intenção `pedido` (o cliente costuma mandar só o contato, quando o agente pede); e
+  `saudacao_conversa` sai quando vem junto de outra intenção ("Oi! Tem violão?").
 - **Atalho sem LLM:** mensagens de até 4 palavras feitas só de cumprimento, agradecimento ou
   despedida ("oi", "boa noite!", "valeu, tchau") viram `saudacao_conversa` sem chamar o modelo.
   "ok", "sim" e "beleza" ficam de fora, porque costumam continuar um assunto.

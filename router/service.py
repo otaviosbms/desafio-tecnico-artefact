@@ -4,7 +4,7 @@ import os
 from dataclasses import dataclass, field
 
 from core.logging import LogCategory, log_event
-from core.text import is_small_talk
+from core.text import has_contact, is_small_talk
 from llm import LLMCall, LLMService
 
 from .intents import Intent, tools_for
@@ -52,6 +52,21 @@ class RouterDecision:
         }
 
 
+def adjust_intents(intents: list[str], message: str) -> list[str]:
+    """Correções determinísticas sobre a classificação do LLM.
+
+    - Mensagem com e-mail ou telefone é dado para consultar pedido: inclui `pedido`, para a
+      ferramenta não ficar de fora em enforce (ex.: o cliente responde só "fulano@email.com").
+    - `saudacao_conversa` junto de outra intenção é só o "Oi!" do começo da frase: sai.
+    """
+    result = list(dict.fromkeys(intents))
+    if has_contact(message) and Intent.PEDIDO not in result:
+        result.append(Intent.PEDIDO.value)
+    if len(result) > 1 and Intent.SAUDACAO_CONVERSA in result:
+        result.remove(Intent.SAUDACAO_CONVERSA.value)
+    return result
+
+
 class IntentRouter:
     def __init__(self, llm: LLMService, mode: str | None = None, min_confidence: float | None = None):
         self.llm = llm
@@ -72,7 +87,7 @@ class IntentRouter:
 
         if is_small_talk(message):
             return self._decide(RouterDecision(
-                mode=mode, source='shortcut', intents=[Intent.SAUDACAO_CONVERSA], confidence=1.0,
+                mode=mode, source='shortcut', intents=[Intent.SAUDACAO_CONVERSA.value], confidence=1.0,
                 reasoning='Só cumprimento ou agradecimento (atalho, sem LLM).',
             ))
 
@@ -84,7 +99,7 @@ class IntentRouter:
                                   'ferramentas liberadas.', llm_calls=result.calls)
         output = result.value
         return self._decide(RouterDecision(
-            mode=mode, source='llm', intents=list(dict.fromkeys(output.intents)),
+            mode=mode, source='llm', intents=adjust_intents([str(i) for i in output.intents], message),
             confidence=output.confidence, reasoning=output.reasoning, llm_calls=result.calls,
         ))
 
