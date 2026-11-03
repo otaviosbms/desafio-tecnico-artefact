@@ -2,50 +2,52 @@
 
 **Objetivo:** Caso não trivial: o agente pede verificação de identidade antes de consultar o pedido e aplica os prazos do manual à data de recebimento do pedido.
 
-- Gerado em: segunda-feira, 02/11/2026 02:50 (horário de Campo Grande)
+- Gerado em: segunda-feira, 02/11/2026 22:17 (horário de Campo Grande)
 - Modelo: `nvidia/nemotron-3-ultra-550b-a55b:free`
+- Estágios: guardrails `shadow` · roteador `shadow`
 - Comando: `python manage.py generate_examples --only 03-devolucao-de-pedido`
 
-> Transcrição real, sem edição. As linhas "Ferramentas" mostram o que o agente consultou.
+> Transcrição real, sem edição. Antes de cada resposta: o que os guardrails e o roteador decidiram e as ferramentas que o agente consultou.
 
 ---
 
 **Cliente:** Me arrependi da minha compra, posso devolver meu pedido?
 
+> 🛡️ Guardrails: passou · llm
+> 🧭 Intenção: `pedido`, `politicas` · llm · confiança 0.90
 > 🔧 Ferramenta: `consultar_politicas` `{"topicos": ["trocas_e_devolucoes"]}`
 
 **Assistente:**
 
-Sim, você pode devolver por arrependimento se a compra foi online e estiver dentro do prazo de **7 dias corridos após o recebimento**. As condições são:
+Sim, para compras online você tem **7 dias corridos após o recebimento** para devolver por arrependimento, sem precisar justificar. O produto deve estar na embalagem original, sem sinais de uso, com todos os acessórios e manuais. O frete da devolução é por nossa conta e o reembolso sai na mesma forma de pagamento em até 10 dias úteis.
 
-- Produto na embalagem original, sem sinais de uso, com todos os acessórios e manuais
-- O frete da devolução é por nossa conta
-- Reembolso na mesma forma de pagamento em até 10 dias úteis
-
-Para saber se o seu pedido ainda está no prazo, preciso do **número do pedido** e do **e-mail ou telefone** cadastrado. Pode me passar?
+Para ver se o seu pedido ainda está no prazo, preciso do **número do pedido** e do **e-mail ou telefone** cadastrado na compra. Pode me passar?
 
 ---
 
 **Cliente:** É o pedido 4
 
+> 🛡️ Guardrails: passou · llm
+> 🧭 Intenção: `pedido` · llm · confiança 0.98
+
 **Assistente:**
 
-Para consultar o pedido e ver se ainda está no prazo de devolução, preciso também do **e-mail ou telefone** que você usou no cadastro. Pode me informar?
+Preciso também do **e-mail ou telefone** que você usou no cadastro da compra para consultar o pedido 4. Pode me informar?
 
 ---
 
 **Cliente:** lucas.mendes@jmail.com
 
-> 🔧 Ferramenta: `consultar_pedido` `{"email_ou_telefone": "lucas.mendes@jmail.com", "numero_pedido": "4"}`
+> 🛡️ Guardrails: passou · llm
+> 🧭 Intenção: `pedido` · llm · confiança 0.99
+> 🔧 Ferramenta: `consultar_pedido` `{"numero_pedido": "4", "email_ou_telefone": "lucas.mendes@jmail.com"}`
 
 **Assistente:**
 
-O pedido **#4** (Giannini GF-3D Dreadnought Sunburst) foi entregue em **22/12/2025**. O prazo de arrependimento de 7 dias corridos encerrou em **29/12/2025**, então hoje ele já está fora desse período.
+O pedido **#4** (Giannini GF-3D Dreadnought Sunburst) foi entregue em **22/12/2025**. O prazo de 7 dias para devolução por arrependimento terminou em **29/12/2025**, então já está fora do período legal.
 
-Como a compra foi no boleto, o reembolso por arrependimento não é mais possível pelo prazo legal.
+Se o instrumento apresentar **defeito de fabricação**, a garantia do fabricante costuma valer de 6 meses a 2 anos (conforme o certificado que acompanha o produto). A loja pode intermediar o contato com o fabricante, se você quiser.
 
-Se o violão apresentar **defeito de fabricação**, a troca pela loja valia até 30 dias (até 09/01/2026). Depois disso, a garantia é diretamente com o fabricante (geralmente de 6 meses a 2 anos, conforme o certificado). A loja pode intermediar esse contato, se você quiser.
-
-Posso ajudar com mais alguma coisa?
+Quer que eu veja como acionar a garantia ou tem mais alguma dúvida?
 
 ---
