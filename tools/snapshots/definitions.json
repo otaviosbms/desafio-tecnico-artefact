@@ -1,0 +1,167 @@
+[
+ {
+  "type": "function",
+  "function": {
+   "name": "buscar_produtos",
+   "description": "Busca instrumentos no catálogo da loja por nome/marca/tipo, categoria e faixa de preço. Use para perguntas como \"quais violões até R$ 1000?\" ou \"vocês têm guitarra Fender?\". Retorna preço atual (já com promoção, se houver) e disponibilidade em estoque.",
+   "parameters": {
+    "properties": {
+     "termo": {
+      "type": "string",
+      "description": "Nome, marca ou característica (ex.: \"yamaha\", \"7 cordas\", \"elétrico\")."
+     },
+     "categoria": {
+      "type": "string",
+      "enum": [
+       "Baixos",
+       "Baterias e Percussão",
+       "Cordas Orquestrais",
+       "Guitarras",
+       "Instrumentos de Sopro (Madeiras)",
+       "Instrumentos de Sopro (Metais)",
+       "Teclados e Pianos",
+       "Ukuleles",
+       "Violões"
+      ]
+     },
+     "preco_min": {
+      "type": "number",
+      "description": "Preço mínimo em reais."
+     },
+     "preco_max": {
+      "type": "number",
+      "description": "Preço máximo em reais."
+     },
+     "apenas_disponiveis": {
+      "description": "Padrão true: só itens à venda e em estoque.",
+      "type": "boolean"
+     },
+     "limite": {
+      "description": "Máximo de resultados (padrão 5, máx. 20).",
+      "type": "integer"
+     }
+    },
+    "type": "object"
+   }
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "detalhes_produto",
+   "description": "Detalhes de um produto específico: preço (com promoção ativa, se houver), estoque, descrição e especificações. Se estiver indisponível, já traz alternativas semelhantes. Use quando o cliente perguntar sobre um modelo específico (ex.: \"quanto custa o Takamine GD20?\").",
+   "parameters": {
+    "properties": {
+     "produto": {
+      "description": "Nome do produto ou id.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "produto"
+    ],
+    "type": "object"
+   }
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "listar_promocoes",
+   "description": "Lista as promoções ativas no momento, com preço original, desconto e preço final. Use quando o cliente perguntar sobre ofertas ou promoções.",
+   "parameters": {
+    "properties": {},
+    "type": "object"
+   }
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "condicoes_pagamento",
+   "description": "Calcula o total e as condições de pagamento de um ou mais produtos: valor no PIX (com desconto quando aplicável), parcelamento máximo sem juros no cartão, boleto, débito e frete em Campo Grande. Use quando o cliente perguntar quanto fica no PIX, em quantas vezes pode parcelar etc.",
+   "parameters": {
+    "properties": {
+     "itens": {
+      "items": {
+       "properties": {
+        "produto": {
+         "description": "Nome do produto ou id.",
+         "type": "string"
+        },
+        "quantidade": {
+         "minimum": 1,
+         "type": "integer"
+        }
+       },
+       "required": [
+        "produto"
+       ],
+       "type": "object"
+      },
+      "type": "array"
+     }
+    },
+    "required": [
+     "itens"
+    ],
+    "type": "object"
+   }
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "consultar_pedido",
+   "description": "Consulta status, itens, rastreio e prazos de troca/devolução/garantia de um pedido. Exige o número do pedido E o e-mail ou telefone do cadastro do cliente (proteção de dados). Se o cliente não informou os dois, peça antes de chamar.",
+   "parameters": {
+    "properties": {
+     "numero_pedido": {
+      "type": "string"
+     },
+     "email_ou_telefone": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "numero_pedido",
+     "email_ou_telefone"
+    ],
+    "type": "object"
+   }
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "consultar_politicas",
+   "description": "Consulta o manual de políticas da loja. Use para dúvidas sobre regras e informações gerais (não para preço/estoque de produtos nem status de pedidos). Pode pedir vários tópicos de uma vez. Tópicos: loja (endereço, telefone, WhatsApp, e-mail, o que a loja vende e não vende (acessórios)); horario (horário de funcionamento e se a loja está aberta agora); pagamento (formas de pagamento, desconto no PIX, regras de parcelamento); trocas_e_devolucoes (arrependimento, devolução, troca por defeito ou preferência, itens sem troca); frete_e_entrega (frete, prazos de entrega, transportadoras, rastreamento, avaria no transporte); promocoes (campanhas do ano e regras de promoções); garantia (garantia legal, do fabricante e o que não é coberto); privacidade (uso de dados pessoais (LGPD) e exclusão de dados); reclamacoes (como tratar reclamações e prazo de retorno da equipe).",
+   "parameters": {
+    "properties": {
+     "topicos": {
+      "items": {
+       "enum": [
+        "loja",
+        "horario",
+        "pagamento",
+        "trocas_e_devolucoes",
+        "frete_e_entrega",
+        "promocoes",
+        "garantia",
+        "privacidade",
+        "reclamacoes"
+       ],
+       "type": "string"
+      },
+      "minItems": 1,
+      "type": "array"
+     }
+    },
+    "required": [
+     "topicos"
+    ],
+    "type": "object"
+   }
+  }
+ }
+]
