@@ -86,8 +86,11 @@ class GuardrailsOutputTests(SimpleTestCase):
             GuardrailsOutput.model_validate({**OK, 'allowed': False, 'category': 'abusivo', 'severity': 'hard'})
         with self.assertRaises(ValidationError):  # bloqueio sem severidade
             GuardrailsOutput.model_validate({**OK, 'allowed': False, 'guidance': 'x'})
-        with self.assertRaises(ValidationError):  # permitido com severidade
+        with self.assertRaises(ValidationError):  # severidade sem orientação
             GuardrailsOutput.model_validate({**OK, 'severity': 'soft'})
+        # A severidade decide: allowed=true num bloqueio leve vira allowed=false.
+        soft = GuardrailsOutput.model_validate({**OK, 'category': 'fora_escopo', 'severity': 'soft', 'guidance': 'x'})
+        self.assertFalse(soft.allowed)
         self.assertFalse(GuardrailsOutput.model_validate({k: v for k, v in OK.items()
                                                           if k not in ('guidance', 'requires_human')}).requires_human)
 
