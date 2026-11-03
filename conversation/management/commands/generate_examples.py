@@ -1,7 +1,7 @@
 """Gera as conversas de exemplo em examples/ rodando o agente real (LLM configurado no .env).
 
 Cada cenário é uma conversa nova; as respostas são gravadas exatamente como o agente
-respondeu, junto com as ferramentas que ele chamou.
+respondeu, junto com o que cada estágio decidiu (guardrails e roteador) e as ferramentas chamadas.
 """
 
 import json
@@ -12,9 +12,8 @@ from django.conf import settings
 from django.core.management import BaseCommand, CommandError
 from django.utils import timezone
 
-from agent.graph import FALLBACK_REPLY
-from agent.service import get_agent
-from llm import LLMConfig
+from conversation.graph import FALLBACK_REPLY
+from conversation.orchestrator import get_orchestrator
 from store.hours import WEEKDAYS
 
 SCENARIOS = {
@@ -68,7 +67,47 @@ SCENARIOS = {
 }
 
 
-def _render(name: str, scenario: dict, turns: list[dict], model: str, started) -> str:
+SOURCES = {'llm': 'LLM', 'shortcut': 'atalho, sem LLM', 'fallback': 'fail-open, LLM indisponível'}
+SEVERITIES = {'soft': 'leve', 'hard': 'duro'}
+
+
+def _guardrails_line(decision: dict) -> str:
+    if decision['origem'] == 'off':
+        return 'desligado'
+    if decision['permitido']:
+        verdict = 'passou'
+    else:
+        severity = SEVERITIES.get(decision['severidade'], decision['severidade'])
+        verdict = f'bloqueio {severity} ({decision["categoria"] or decision["regra"]})'
+    if decision['origem'] == 'detector':
+        origin = f'regra `{decision["regra"]}`, sem LLM'
+    else:
+        origin = SOURCES.get(decision['origem'], decision['origem'])
+    effect = '' if decision['permitido'] or decision['aplicada'] else ', só registrado'
+    return f'{verdict} · {origin}{effect}'
+
+
+def _router_line(decision: dict) -> str:
+    if decision['origem'] == 'off':
+        return 'desligado'
+    intents = ', '.join(f'`{i}`' for i in decision['intencoes']) or 'nenhuma'
+    confidence = f' · confiança {decision["confianca"]:.2f}' if decision['confianca'] is not None else ''
+    return f'{intents} · {SOURCES.get(decision["origem"], decision["origem"])}{confidence}'
+
+
+def _stage_lines(decisions: list[dict]) -> list[str]:
+    lines = []
+    for decision in decisions:
+        if decision['estagio'] == 'guardrails':
+            lines.append(f'> 🛡️ Guardrails: {_guardrails_line(decision)}')
+        elif decision['estagio'] == 'router':
+            lines.append(f'> 🧭 Intenção: {_router_line(decision)}')
+        elif decision['estagio'] == 'transferencia':
+            lines.append(f'> 🙋 Transferência para a equipe: {decision["motivo"]}')
+    return lines
+
+
+def _render(name: str, scenario: dict, turns: list[dict], model: str, modes: str, started) -> str:
     lines = [
         f'# {scenario["titulo"]}',
         '',
@@ -76,19 +115,22 @@ def _render(name: str, scenario: dict, turns: list[dict], model: str, started) -
         '',
         f'- Gerado em: {WEEKDAYS[started.weekday()]}, {started:%d/%m/%Y %H:%M} (horário de Campo Grande)',
         f'- Modelo: `{model}`',
+        f'- Estágios: {modes}',
         f'- Comando: `python manage.py generate_examples --only {name}`',
         '',
-        '> Transcrição real, sem edição. As linhas "Ferramentas" mostram o que o agente consultou.',
+        '> Transcrição real, sem edição. Antes de cada resposta: o que os guardrails e o roteador '
+        'decidiram e as ferramentas que o agente consultou.',
         '',
         '---',
         '',
     ]
     for turn in turns:
         lines += [f'**Cliente:** {turn["cliente"]}', '']
+        lines += _stage_lines(turn['decisoes'])
         for call in turn['ferramentas']:
             args = json.dumps(call['argumentos'], ensure_ascii=False)
             lines.append(f'> 🔧 Ferramenta: `{call["nome"]}` `{args}`')
-        if turn['ferramentas']:
+        if turn['ferramentas'] or turn['decisoes']:
             lines.append('')
         lines += ['**Assistente:**', '', turn['assistente'].strip(), '', '---', '']
     return '\n'.join(lines)
@@ -104,8 +146,9 @@ class Command(BaseCommand):
     def handle(self, *args, only, output, **options):
         output = Path(output)
         output.mkdir(exist_ok=True)
-        agent = get_agent()
-        model = LLMConfig.from_env().model
+        orchestrator = get_orchestrator()
+        model = orchestrator.model
+        modes = f'guardrails `{orchestrator.guardrails.mode}` · roteador `{orchestrator.router.mode}`'
 
         for name in only or SCENARIOS:
             scenario = SCENARIOS[name]
@@ -114,11 +157,12 @@ class Command(BaseCommand):
             turns = []
             for message in scenario['mensagens']:
                 self.stdout.write(f'[{name}] Cliente: {message}')
-                reply = agent.reply(thread, message)
-                turns.append({'cliente': message, 'ferramentas': reply.tool_calls, 'assistente': reply.text})
+                reply = orchestrator.run_turn(thread, message)
+                turns.append({'cliente': message, 'ferramentas': reply.tool_calls, 'decisoes': reply.decisions,
+                              'assistente': reply.text})
                 self.stdout.write(f'[{name}] Assistente: {reply.text[:120]}...')
             if any(t['assistente'] == FALLBACK_REPLY for t in turns):
                 raise CommandError(f'[{name}] O LLM falhou em alguma resposta; nada foi gravado.')
             path = output / f'{name}.md'
-            path.write_text(_render(name, scenario, turns, model, started), encoding='utf-8')
+            path.write_text(_render(name, scenario, turns, model, modes, started), encoding='utf-8')
             self.stdout.write(self.style.SUCCESS(f'[{name}] gravado em {path}'))

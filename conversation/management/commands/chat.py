@@ -1,8 +1,9 @@
+import logging
 import uuid
 
 from django.core.management import BaseCommand
 
-from agent.service import get_agent
+from conversation.orchestrator import get_orchestrator
 
 
 class Command(BaseCommand):
@@ -13,15 +14,18 @@ class Command(BaseCommand):
         parser.add_argument('-m', '--message', action='append', default=[],
                             help='Envia esta mensagem e sai (pode repetir para uma conversa roteirizada).')
         parser.add_argument('--show-tools', action='store_true', help='Mostra as ferramentas chamadas.')
+        parser.add_argument('--logs', action='store_true', help='Mostra os eventos estruturados de cada turno.')
 
-    def handle(self, *args, thread, message, show_tools, **options):
+    def handle(self, *args, thread, message, show_tools, logs, **options):
+        if not logs:  # os eventos poluiriam a conversa; degradações e falhas continuam aparecendo
+            logging.getLogger('emporio.events').setLevel(logging.WARNING)
         thread = thread or f'cli-{uuid.uuid4().hex[:8]}'
-        agent = get_agent()
+        orchestrator = get_orchestrator()
         self.stdout.write(self.style.NOTICE(f'Conversa: {thread}  (Ctrl+C ou "sair" para encerrar)\n'))
 
         def send(text):
             self.stdout.write(f'Você: {text}')
-            reply = agent.reply(thread, text)
+            reply = orchestrator.run_turn(thread, text)
             if show_tools:
                 for call in reply.tool_calls:
                     self.stdout.write(self.style.WARNING(f'  [ferramenta] {call["nome"]} {call["argumentos"]}'))

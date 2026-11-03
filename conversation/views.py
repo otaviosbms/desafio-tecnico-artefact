@@ -4,6 +4,8 @@ import json
 import logging
 import re
 import uuid
+from dataclasses import dataclass
+from datetime import datetime
 
 from django.conf import settings
 from django.http import JsonResponse
@@ -11,14 +13,19 @@ from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST, require_safe
 
+from core import clock
+from guardrails.service import MODES
+from guardrails.service import default_mode as guardrails_default_mode
 from llm import LLMConfig, LLMConfigError
+from llm.roles import model_for
+from router.service import default_mode as router_default_mode
 from store.hours import store_status
 from store.models import Order
+from tools import registry
 
-from . import clock
+from .orchestrator import TurnOptions, get_orchestrator
 from .prompts import build_system_prompt
-from .service import get_agent
-from .tools import get_tools
+from .response import to_api
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +74,19 @@ class BadRequest(ValueError):
     pass
 
 
+@dataclass(frozen=True)
+class MessageConfig:
+    """Configuração de uma mensagem vinda da UI (já validada). None = padrão do .env."""
+
+    model: str | None = None
+    temperature: float | None = None
+    now: datetime | None = None
+    router_mode: str | None = None
+    guardrails_mode: str | None = None
+    router_model: str | None = None
+    guardrails_model: str | None = None
+
+
 def _thread_id(request) -> str:
     """Cada sessão do navegador tem a sua conversa."""
     if 'thread_id' not in request.session:
@@ -87,6 +107,16 @@ def _llm_defaults() -> dict:
     }
 
 
+def _stage_defaults() -> dict:
+    """Modos e modelos dos estágios no .env, para a seção Estágios da UI."""
+    base = _llm_defaults().get('modelo') or ''
+    return {
+        'modos': list(MODES),
+        'guardrails': {'modo': guardrails_default_mode(), 'modelo': model_for('guardrails', base)},
+        'roteador': {'modo': router_default_mode(), 'modelo': model_for('router', base)},
+    }
+
+
 def _test_orders() -> list[dict]:
     """Pedidos fictícios do desafio, para preencher testes rapidamente (só em DEBUG)."""
     if not settings.DEBUG:
@@ -103,15 +133,30 @@ def _test_orders() -> list[dict]:
     ]
 
 
-def _parse_config(data: dict) -> tuple[str | None, float | None, object]:
-    """Valida a configuração enviada pela UI: (modelo, temperatura, agora)."""
+def _model_name(config: dict, key: str) -> str | None:
+    value = config.get(key)
+    if value not in (None, '') and not isinstance(value, str):
+        raise BadRequest('Nome de modelo inválido.')
+    value = (value or '').strip() or None
+    if value and not MODEL_NAME.match(value):
+        raise BadRequest('Nome de modelo inválido.')
+    return value
+
+
+def _mode(config: dict, key: str, label: str) -> str | None:
+    value = config.get(key) or None
+    if value is not None and value not in MODES:
+        raise BadRequest(f'Modo do {label} inválido. Use {", ".join(MODES)}.')
+    return value
+
+
+def _parse_config(data: dict) -> MessageConfig:
+    """Valida a configuração enviada pela UI."""
     config = data.get('config') or {}
     if not isinstance(config, dict):
         raise BadRequest('Configuração inválida.')
 
-    model = (config.get('modelo') or '').strip() or None
-    if model and not MODEL_NAME.match(model):
-        raise BadRequest('Nome de modelo inválido.')
+    model = _model_name(config, 'modelo')
 
     temperature = config.get('temperatura')
     if temperature in ('', None):
@@ -128,36 +173,50 @@ def _parse_config(data: dict) -> tuple[str | None, float | None, object]:
         now = clock.parse(config.get('agora') or None)
     except ValueError:
         raise BadRequest('Data/hora simulada inválida.') from None
-    return model, temperature, now
+    return MessageConfig(
+        model=model, temperature=temperature, now=now,
+        router_mode=_mode(config, 'modo_roteador', 'roteador'),
+        guardrails_mode=_mode(config, 'modo_guardrails', 'guardrails'),
+        router_model=_model_name(config, 'modelo_roteador'),
+        guardrails_model=_model_name(config, 'modelo_guardrails'),
+    )
 
 
-def _agent_for(model, temperature):
-    defaults = _llm_defaults()
-    if model == defaults.get('modelo'):
-        model = None
-    if temperature == defaults.get('temperatura'):
-        temperature = None
-    return get_agent(model, temperature)
+def _orchestrator_for(config: MessageConfig):
+    """Orquestrador para os modelos pedidos; valores iguais aos do .env usam o padrão (mesmo cache)."""
+    defaults, stages = _llm_defaults(), _stage_defaults()
+
+    def custom(value, default):
+        return None if value == default else value
+
+    return get_orchestrator(
+        custom(config.model, defaults.get('modelo')),
+        custom(config.temperature, defaults.get('temperatura')),
+        custom(config.router_model, stages['roteador']['modelo']),
+        custom(config.guardrails_model, stages['guardrails']['modelo']),
+    )
 
 
 @require_safe
 def chat(request):
     thread_id = _thread_id(request)
-    agent = get_agent()
-    return render(request, 'agent/chat.html', {
+    orchestrator = get_orchestrator()
+    return render(request, 'conversation/chat.html', {
         'page_data': {
             'thread_id': thread_id,
-            'historico': agent.history(thread_id),
-            'rastro': agent.trace(thread_id),
+            'historico': orchestrator.history(thread_id),
+            'rastro': orchestrator.trace(thread_id),
+            'decisoes': orchestrator.decisions(thread_id),
             'llm': _llm_defaults(),
+            'estagios': _stage_defaults(),
             'cenarios': SCENARIOS,
             'horarios': TIME_PRESETS,
             'pedidos_teste': _test_orders(),
             'urls': {
-                'mensagem': reverse('agent:send_message'),
-                'contexto': reverse('agent:context'),
-                'abrir': reverse('agent:open_conversation'),
-                'nova': reverse('agent:new_conversation'),
+                'mensagem': reverse('conversation:send_message'),
+                'contexto': reverse('conversation:context'),
+                'abrir': reverse('conversation:open_conversation'),
+                'nova': reverse('conversation:new_conversation'),
             },
         },
     })
@@ -168,7 +227,7 @@ def new_conversation(request):
     request.session.pop('thread_id', None)
     if request.headers.get('Accept') == 'application/json':
         return JsonResponse({'thread_id': _thread_id(request)})
-    return redirect('agent:chat')
+    return redirect('conversation:chat')
 
 
 @require_POST
@@ -181,11 +240,12 @@ def open_conversation(request):
     if not THREAD_ID.match(thread_id):
         return JsonResponse({'erro': 'Id de conversa inválido.'}, status=400)
     request.session['thread_id'] = thread_id
-    agent = get_agent()
+    orchestrator = get_orchestrator()
     return JsonResponse({
         'thread_id': thread_id,
-        'historico': agent.history(thread_id),
-        'rastro': agent.trace(thread_id),
+        'historico': orchestrator.history(thread_id),
+        'rastro': orchestrator.trace(thread_id),
+        'decisoes': orchestrator.decisions(thread_id),
     })
 
 
@@ -200,7 +260,7 @@ def context(request):
         'agora': now.isoformat(),
         'situacao_loja': store_status(now),
         'system_prompt': build_system_prompt(now),
-        'ferramentas': [tool.definition()['function'] for tool in get_tools()],
+        'ferramentas': [definition['function'] for definition in registry.definitions()],
     })
 
 
@@ -215,22 +275,17 @@ def send_message(request):
             raise BadRequest('Digite uma mensagem.')
         if len(text) > MAX_MESSAGE_LENGTH:
             raise BadRequest(f'Mensagem muito longa (máximo de {MAX_MESSAGE_LENGTH} caracteres).')
-        model, temperature, now = _parse_config(data)
+        config = _parse_config(data)
     except BadRequest as exc:
         return JsonResponse({'erro': str(exc)}, status=400)
     except ValueError:
         return JsonResponse({'erro': 'Requisição inválida.'}, status=400)
 
     try:
-        agent = _agent_for(model, temperature)
-        reply = agent.reply(_thread_id(request), text, now=now)
+        orchestrator = _orchestrator_for(config)
+        options = TurnOptions(now=config.now, router_mode=config.router_mode, guardrails_mode=config.guardrails_mode)
+        result = orchestrator.run_turn(_thread_id(request), text, options)
     except Exception:
         logger.exception('Falha ao responder a mensagem')
         return JsonResponse({'erro': 'Não consegui responder agora. Tente novamente em instantes.'}, status=500)
-    return JsonResponse({
-        'resposta': reply.text,
-        'ferramentas': reply.tool_calls,
-        'rastro': reply.trace,
-        'duracao_ms': reply.duration_ms,
-        'modelo': agent.llm.config.model,
-    })
+    return JsonResponse(to_api(result))

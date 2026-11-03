@@ -64,7 +64,23 @@ recuse com gentileza, em uma frase, e diga em que você pode ajudar.
 """
 
 
-def build_system_prompt(now: datetime) -> str:
+GUIDANCE_SECTION = """
+
+# Orientação para esta mensagem
+{guidance}
+"""
+
+
+SCOPE_SECTION = """
+
+# Escopo desta resposta
+Assunto da mensagem: {intents}. Ferramentas disponíveis agora: {tools}. Se o cliente pedir algo \
+fora disso, responda o que der com o que você tem e pergunte se ele quer seguir com o novo assunto.
+"""
+
+
+def build_system_prompt(now: datetime, guidance: str | None = None, intents: list[str] | None = None,
+                        allowed_tools: list[str] | None = None) -> str:
     status = store_status(now)
     if status['aberta']:
         situation = f'A loja está aberta agora (fecha às {status["fecha_as"]}).'
@@ -74,4 +90,10 @@ def build_system_prompt(now: datetime) -> str:
         f'- Agora: {WEEKDAYS[now.weekday()]}, {now:%d/%m/%Y}, {now:%H:%M} (horário de Campo Grande).\n'
         f'- {situation}'
     )
-    return SYSTEM_PROMPT.format(context=context)
+    prompt = SYSTEM_PROMPT.format(context=context)
+    if guidance:  # vinda do guardrails (ex.: tentativa de manipulação, caso para a equipe)
+        prompt = prompt.rstrip('\n') + GUIDANCE_SECTION.format(guidance=guidance)
+    if intents:  # vindas do roteador em enforce (as ferramentas foram restringidas)
+        tools = ', '.join(allowed_tools or []) or 'nenhuma'
+        prompt = prompt.rstrip('\n') + SCOPE_SECTION.format(intents=', '.join(intents), tools=tools)
+    return prompt

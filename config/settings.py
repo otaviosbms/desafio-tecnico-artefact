@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
 import os
+import sys
 from pathlib import Path
 
 import dj_database_url
@@ -44,7 +45,8 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'store',
-    'agent',
+    'tools',
+    'conversation',
 ]
 
 MIDDLEWARE = [
@@ -133,5 +135,32 @@ STATIC_URL = 'static/'
 MAILERS = {
     'default': {
         'BACKEND': 'django.core.mail.backends.console.EmailBackend',
+    },
+}
+
+
+# Logging
+# Eventos estruturados do agente (core/logging.py): uma linha JSON por evento no console.
+# LOG_LEVEL=WARNING mostra só degradações e falhas silenciosas. Nos testes, só erros.
+
+TESTING = sys.argv[1:2] == ['test']
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'event': {'format': '%(asctime)s %(levelname)s %(message)s'},
+    },
+    'handlers': {
+        'console': {'class': 'logging.StreamHandler', 'formatter': 'event'},
+    },
+    'loggers': {
+        'emporio.events': {
+            'handlers': ['console'],
+            'level': 'ERROR' if TESTING else os.getenv('LOG_LEVEL', 'INFO'),
+            'propagate': False,
+        },
+        # Avisos do pacote de LLM (ex.: modelo sem preço na tabela).
+        'llm': {'handlers': ['console'], 'level': 'ERROR' if TESTING else 'WARNING', 'propagate': False},
     },
 }
