@@ -26,8 +26,7 @@ O módulo tem duas camadas: o `LLMClient` (transporte: `chat` e `stream`) e o `L
   poucos segundos.
 - **Ferramentas:** no Chat Completions, o `gpt-6-luna` só aceita function calling sem raciocínio
   (`LLM_REASONING_EFFORT=none`); sem isso, a API devolve 400 em toda chamada com ferramentas.
-- **Custo:** o modelo ainda não está na tabela de `llm/pricing.py`, então o custo aparece como 0
-  (com um aviso no log).
+- **Custo:** US$ 0,10 por 1M de tokens de entrada e US$ 0,50 de saída (tabela de `llm/pricing.py`).
 
 Antes, o projeto usou o OpenRouter com `nvidia/nemotron-3-ultra-550b-a55b:free`: gratuito, mas com
 latência de até minutos por chamada e cota diária (erro 429). Os dois funcionam só trocando o `.env`.
@@ -52,7 +51,7 @@ Exemplos:
 ```env
 # OpenAI
 LLM_PROVIDER=openai
-LLM_MODEL=gpt-4.1-mini
+LLM_MODEL=gpt-6-luna
 OPENAI_API_KEY=sk-...
 
 # Local, sem custo (precisa do Ollama rodando)
@@ -82,7 +81,7 @@ Cada camada de IA tem o seu modelo, e até o seu provedor, configurável no `.en
 LLM_PROVIDER=openai
 LLM_MODEL=gpt-6-luna                          # padrão de todas as camadas
 OPENAI_API_KEY=sk-...
-LLM_MODEL_ROUTER=gpt-4.1-mini                 # mesmo provedor e chave
+LLM_MODEL_ROUTER=gpt-5.4-nano                 # mesmo provedor e chave
 LLM_MODEL_GUARDRAILS=groq:llama-3.3-70b-versatile   # outro provedor, com a chave dele
 GROQ_API_KEY=gsk-...
 ```
@@ -139,8 +138,10 @@ chamada passa pelo `LLMService`, que recebe sempre **quem chamou** (`caller`) e 
   modelo e provedor (ver "Modelo por camada");
 - **logs e uso:** cada chamada gera um `LLM_CALL` (caller, papel, modelo, duração, tokens, custo,
   sucesso) e soma tokens e custo no `TurnContext` do turno;
-- **custo estimado** (`llm/pricing.py`): tabela em US$ por 1M de tokens. Modelos `:free` custam 0;
-  um modelo fora da tabela custa 0 e gera um aviso, uma vez por modelo;
+- **custo estimado** (`llm/pricing.py`): `(tokens de entrada × preço de entrada + tokens de saída ×
+  preço de saída) ÷ 1M`, com a tabela dos modelos da OpenAI da família GPT-5 em diante (ver
+  "Tabela de preços"). Modelos `:free` custam 0; um modelo fora da tabela custa 0 e gera um aviso,
+  uma vez por modelo;
 - **nunca lança exceção:** `chat` devolve um `LLMCall` (`response` é `None` em caso de falha, com
   o motivo em `error`); `complete_text` e `complete_json` devolvem `None` e registram uma
   `DEGRADATION`. Quem chama decide o fallback.
@@ -180,6 +181,38 @@ o `complete_json` tenta, nesta ordem:
 - Em todos os níveis a resposta é validada com `output_model.model_validate_json`. JSON inválido
   ou fora do schema vira `None` com `DEGRADATION` (`reason='invalid_output'`).
 - `LLM_STRUCTURED_OUTPUT` fixa um nível (útil quando já se sabe o que o provedor suporta).
+
+## Tabela de preços
+
+US$ por 1 milhão de tokens, dos modelos da OpenAI da família GPT-5 em diante, pela tabela pública
+de 29/10/2026 ([BenchLM](https://benchlm.ai/openai/api-pricing), conferida com o
+[LiteLLM](https://docs.litellm.ai/blog/gpt_6_sol_luna) para o GPT-6). É o que a UI mostra em
+"custo" (estatísticas, rastro e aba Decisões) e o que vai em `cost_usd` nos logs.
+
+| Modelo | Entrada | Saída |
+|---|---:|---:|
+| `gpt-6-astra` | 10,00 | 50,00 |
+| `gpt-6.1-sol`, `gpt-6-sol` | 2,00 | 10,00 |
+| `gpt-6.1-terra` | 1,00 | 5,00 |
+| `gpt-6-luna` | 0,10 | 0,50 |
+| `gpt-5.6-sol` | 4,00 | 20,00 |
+| `gpt-5.6-terra` | 2,00 | 12,00 |
+| `gpt-5.6-luna` | 0,20 | 1,20 |
+| `gpt-5.5-pro`, `gpt-5.4-pro` | 30,00 | 180,00 |
+| `gpt-5.5` | 5,00 | 30,00 |
+| `gpt-5.4` | 2,50 | 15,00 |
+| `gpt-5.4-mini` | 0,75 | 4,50 |
+| `gpt-5.4-nano` | 0,20 | 1,25 |
+| `gpt-5.2` | 1,75 | 14,00 |
+| `gpt-5.1`, `gpt-5` | 1,25 | 10,00 |
+| `gpt-5-mini` | 0,25 | 2,00 |
+| `gpt-5-nano` | 0,05 | 0,40 |
+
+- Versões fixas (com a data no fim, ex.: `gpt-5.4-mini-2026-03-05`) e o prefixo do OpenRouter
+  (`openai/gpt-6-luna`) usam o preço do modelo base.
+- É uma estimativa: não considera o desconto de entrada em cache nem o preço de contexto longo (acima
+  de 272 mil tokens), nem os modos Batch, Flex e Priority. Para trocar ou incluir um modelo, edite
+  `PRICES` em `llm/pricing.py`.
 
 ## Testes
 

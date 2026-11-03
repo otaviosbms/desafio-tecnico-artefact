@@ -237,7 +237,7 @@ class LLMServiceStructuredTests(TestCase):
 
 class LLMServiceTests(TestCase):
     def test_complete_text_e_uso_somado_no_turno(self):
-        client = ScriptedClient('  Oi!  ', model='openai/gpt-4o-mini')
+        client = ScriptedClient('  Oi!  ', model='openai/gpt-6-luna')
         service = LLMService(client)
         with self.assertLogs('emporio.events', 'INFO') as logs, turn_context.start_turn('t1') as turn:
             text = service.complete_text(caller='teste', role='agent', messages=MESSAGES)
@@ -245,8 +245,8 @@ class LLMServiceTests(TestCase):
         self.assertEqual(text, 'Oi!')
         self.assertEqual(turn.llm_calls, 1)
         self.assertEqual(turn.tokens['total_tokens'], 1100)
-        # 1000 × 0,15 + 100 × 0,60 por milhão
-        self.assertEqual(turn.cost_usd, Decimal('0.00021'))
+        # 1000 × 0,10 + 100 × 0,50 por milhão
+        self.assertEqual(turn.cost_usd, Decimal('0.00015'))
         event = logs.records[0].event
         self.assertEqual((event['category'], event['caller'], event['turn_id']), ('LLM_CALL', 'teste', turn.turn_id))
 
@@ -355,8 +355,12 @@ class StructuredHelpersTests(TestCase):
 class PricingTests(TestCase):
     def test_custos(self):
         usage = {'prompt_tokens': 1_000_000, 'completion_tokens': 1_000_000}
-        self.assertEqual(pricing.cost('gpt-4o-mini', usage), Decimal('0.75'))
-        self.assertEqual(pricing.cost('openai/gpt-4o-mini', usage), Decimal('0.75'))
+        self.assertEqual(pricing.cost('gpt-6-luna', usage), Decimal('0.60'))
+        self.assertEqual(pricing.cost('openai/gpt-6-luna', usage), Decimal('0.60'))
+        self.assertEqual(pricing.cost('gpt-5.4-mini-2026-03-05', usage), Decimal('5.25'))  # versão com data
+        self.assertEqual(pricing.cost('gpt-5', usage), Decimal('11.25'))  # não confunde com gpt-5.x
         self.assertEqual(pricing.cost('nvidia/nemotron-3-ultra-550b-a55b:free', usage), 0)
         with self.assertLogs('llm.pricing', 'WARNING'):
             self.assertEqual(pricing.cost('modelo-sem-preco-x', usage), 0)
+        with self.assertLogs('llm.pricing', 'WARNING'):
+            self.assertEqual(pricing.cost('gpt-4.1-mini', usage), 0)  # só a família GPT-5 em diante

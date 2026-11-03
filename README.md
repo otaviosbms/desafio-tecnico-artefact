@@ -33,7 +33,7 @@ Completions da OpenAI serve, desde que o modelo suporte function calling:
 
 ```env
 LLM_PROVIDER=openai          # openai, anthropic, gemini, groq, openrouter, deepseek, ollama, lmstudio, custom
-LLM_MODEL=gpt-4.1-mini
+LLM_MODEL=gpt-6-luna
 OPENAI_API_KEY=sk-...        # ou a variável do provedor escolhido, ou LLM_API_KEY
 ```
 
