@@ -6,7 +6,6 @@ Cada conversa é uma `thread_id`; o histórico fica no checkpointer (ver `checkp
 com o que aconteceu nesta mensagem.
 """
 
-import dataclasses
 import json
 import time
 from dataclasses import dataclass, field
@@ -18,7 +17,7 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from core.logging import LogCategory, log_event
 from core.turn_context import start_turn
 from guardrails.service import Guardrails
-from llm import LLMClient, LLMConfig, LLMService
+from llm import LLMService
 from router.service import IntentRouter
 
 from .checkpoints import default_checkpointer
@@ -155,20 +154,12 @@ def get_orchestrator(model: str | None = None, temperature: float | None = None,
                      guardrails_model: str | None = None) -> ConversationOrchestrator:
     """Um orquestrador por combinação de modelos por processo; todos compartilham o histórico.
 
-    Sem argumentos, usa os modelos do .env (LLM_MODEL e LLM_MODEL_*). O provedor (URL e chave) é
-    sempre o do .env: a UI de testes troca só os modelos e a temperatura do agente.
+    Sem argumentos, usa os modelos do .env (LLM_MODEL e LLM_MODEL_*). Os modelos aceitam "modelo" ou
+    "provedor:modelo"; quem monta os clientes é o módulo `llm` (LLMService.with_overrides).
     """
     if model is None and temperature is None and router_model is None and guardrails_model is None:
         return ConversationOrchestrator()
-    base = LLMConfig.from_env()
-    role_clients = {}
-    if model is not None or temperature is not None:
-        role_clients['agent'] = LLMClient(dataclasses.replace(
-            base,
-            model=model or base.model,
-            temperature=base.temperature if temperature is None else temperature,
-        ))
-    for role, role_model in (('router', router_model), ('guardrails', guardrails_model)):
-        if role_model:
-            role_clients[role] = LLMClient(dataclasses.replace(base, model=role_model))
-    return ConversationOrchestrator(service=LLMService(role_clients=role_clients))
+    service = LLMService.with_overrides(
+        {'agent': model, 'router': router_model, 'guardrails': guardrails_model}, agent_temperature=temperature,
+    )
+    return ConversationOrchestrator(service=service)

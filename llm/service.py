@@ -2,7 +2,7 @@
 
 Sobre o `LLMClient` (transporte), o serviço acrescenta:
 - **caller e papel:** quem chamou (`agent.respond`, `router.classify`, ...) e qual modelo usar
-  (ver `roles.py`);
+  (ver `roles.py`: modelo e provedor por camada);
 - **observabilidade:** cada chamada gera um log `LLM_CALL` e soma tokens e custo no turno atual;
 - **saída estruturada portável:** `complete_json` valida a resposta com Pydantic e tem três
   níveis de fallback, porque nem todo provedor compatível com a OpenAI aceita `json_schema`;
@@ -26,7 +26,7 @@ from core.turn_context import add_llm_usage
 
 from . import pricing
 from .client import ChatResponse, LLMClient, LLMError, Message
-from .roles import model_for
+from .roles import ROLES, config_for
 
 Model = TypeVar('Model', bound=BaseModel)
 
@@ -123,19 +123,36 @@ class LLMService:
         """
         self.client = client or LLMClient()
         self._role_clients = dict(role_clients or {})
+        for role in ROLES:  # resolve já, para um .env errado falhar na subida e não no meio da conversa
+            self.client_for(role)
         mode = (structured_output or os.getenv('LLM_STRUCTURED_OUTPUT') or 'auto').lower()
         if mode != 'auto' and mode not in STRUCTURED_MODES:
             raise ValueError(f'LLM_STRUCTURED_OUTPUT inválido: {mode!r}. Use auto, {", ".join(STRUCTURED_MODES)}.')
         self.structured_output = mode
         self._structured_level: dict[str, int] = {}  # modelo -> nível que funcionou
 
+    @classmethod
+    def with_overrides(cls, models: dict[str, str | None] | None = None,
+                       agent_temperature: float | None = None) -> 'LLMService':
+        """Serviço com o modelo de alguns papéis trocado (ex.: escolhido na UI de testes).
+
+        `models`: papel -> "modelo" ou "provedor:modelo". Lança LLMConfigError se faltar a chave do
+        provedor pedido.
+        """
+        base = LLMClient()
+        overrides = {role: ref for role, ref in (models or {}).items() if ref}
+        if agent_temperature is not None:
+            overrides.setdefault('agent', None)
+        role_clients = {
+            role: LLMClient(config_for(role, base.config, ref, agent_temperature if role == 'agent' else None))
+            for role, ref in overrides.items()
+        }
+        return cls(base, role_clients=role_clients)
+
     def client_for(self, role: str) -> LLMClient:
         if role not in self._role_clients:
-            model = model_for(role, self.client.config.model)
-            self._role_clients[role] = (
-                self.client if model == self.client.config.model
-                else LLMClient(dataclasses.replace(self.client.config, model=model))
-            )
+            config = config_for(role, self.client.config)
+            self._role_clients[role] = self.client if config == self.client.config else LLMClient(config)
         return self._role_clients[role]
 
     # Chamadas ----------------------------------------------------------------------------

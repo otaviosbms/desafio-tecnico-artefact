@@ -43,7 +43,8 @@ latência de até minutos por chamada e cota diária (erro 429). Os dois funcion
 | `LLM_TEMPERATURE` | Opcional; se ausente, não é enviada (alguns modelos de raciocínio a rejeitam) |
 | `LLM_REASONING_EFFORT` | Opcional (`none`, `low`, `medium`, `high`), para modelos de raciocínio; se ausente, não é enviado |
 | `LLM_TIMEOUT` / `LLM_MAX_RETRIES` | Padrão: 60 s e 2 tentativas |
-| `LLM_MODEL_AGENT` / `LLM_MODEL_ROUTER` / `LLM_MODEL_GUARDRAILS` | Modelo por papel (mesmo provedor e chave); vazio = `LLM_MODEL` |
+| `LLM_MODEL_AGENT` / `LLM_MODEL_ROUTER` / `LLM_MODEL_GUARDRAILS` | Modelo de cada camada: `modelo` ou `provedor:modelo`; vazio = `LLM_MODEL` (ver abaixo) |
+| `LLM_REASONING_EFFORT_AGENT` / `_ROUTER` / `_GUARDRAILS` | Reasoning da camada quando ela usa outro modelo |
 | `LLM_STRUCTURED_OUTPUT` | `auto` (padrão), `json_schema`, `json_object` ou `prompt` (ver abaixo) |
 
 Exemplos:
@@ -66,6 +67,38 @@ LLM_MODEL=...
 ```
 
 Para function calling, o modelo escolhido precisa suportar ferramentas.
+
+### Modelo por camada
+
+Cada camada de IA tem o seu modelo, e até o seu provedor, configurável no `.env`:
+
+| Camada | Variável | Papel no código |
+|---|---|---|
+| Conversa (o agente que responde) | `LLM_MODEL_AGENT` | `agent` |
+| Roteador de intenção | `LLM_MODEL_ROUTER` | `router` |
+| Guardrails | `LLM_MODEL_GUARDRAILS` | `guardrails` |
+
+```env
+LLM_PROVIDER=openai
+LLM_MODEL=gpt-6-luna                          # padrão de todas as camadas
+OPENAI_API_KEY=sk-...
+LLM_MODEL_ROUTER=gpt-4.1-mini                 # mesmo provedor e chave
+LLM_MODEL_GUARDRAILS=groq:llama-3.3-70b-versatile   # outro provedor, com a chave dele
+GROQ_API_KEY=gsk-...
+```
+
+- **`provedor:modelo`:** o prefixo só conta se for um preset (`openai`, `groq`, `gemini`, ...);
+  nomes do OpenRouter com `:` (`nvidia/x:free`) continuam sendo só o modelo. O provedor novo usa a
+  URL e a chave do preset dele.
+- **Reasoning:** `LLM_REASONING_EFFORT` vale para o `LLM_MODEL`. Uma camada com outro modelo não o
+  herda (um modelo pode recusar o parâmetro); use `LLM_REASONING_EFFORT_<CAMADA>` se precisar.
+- **Falha cedo:** os clientes de todas as camadas são montados quando o serviço sobe; um provedor
+  sem chave gera `LLMConfigError` na subida, e não no meio de uma conversa.
+- **UI de testes:** os campos de modelo (agente, roteador e guardrails) aceitam o mesmo formato, por
+  mensagem; um provedor sem chave devolve um erro 400 com a variável que falta.
+
+Tudo isso fica em `llm/` (`roles.py`, `LLMConfig.with_model`, `LLMService.with_overrides`): o resto
+da aplicação só pede um papel ao `LLMService` e não monta clientes nem configurações.
 
 ## Uso
 
@@ -101,8 +134,9 @@ O agente, o roteador e os guardrails não usam o `LLMClient` direto: toda
 chamada passa pelo `LLMService`, que recebe sempre **quem chamou** (`caller`) e **o papel**
 (`role`), e acrescenta:
 
-- **modelo por papel** (`llm/roles.py`): `agent`, `router` e `guardrails`, cada um com a sua
-  variável `LLM_MODEL_*`. A UI de testes pode trocar o modelo de cada papel por mensagem;
+- **modelo por papel** (`llm/roles.py`): `agent`, `router` e `guardrails`, cada um com o seu
+  modelo e provedor (ver "Modelo por camada"). A UI de testes pode trocar o modelo de cada papel por
+  mensagem;
 - **logs e uso:** cada chamada gera um `LLM_CALL` (caller, papel, modelo, duração, tokens, custo,
   sucesso) e soma tokens e custo no `TurnContext` do turno;
 - **custo estimado** (`llm/pricing.py`): tabela em US$ por 1M de tokens. Modelos `:free` custam 0;

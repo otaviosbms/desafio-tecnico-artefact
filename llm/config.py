@@ -7,7 +7,7 @@ LLM_MODEL e a chave de API do provedor.
 """
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 
 @dataclass(frozen=True)
@@ -94,3 +94,36 @@ class LLMConfig:
             timeout=float(env('TIMEOUT', 60)),
             max_retries=int(env('MAX_RETRIES', 2)),
         )
+
+    def with_temperature(self, temperature: float | None) -> 'LLMConfig':
+        return replace(self, temperature=temperature)
+
+    def with_model(self, ref: str, reasoning_effort: str | None = None) -> 'LLMConfig':
+        """Cópia para outro modelo. `ref` é "modelo" (mesmo provedor) ou "provedor:modelo".
+
+        Trocar de provedor usa a URL e a chave do preset dele (ex.: GROQ_API_KEY). O
+        `reasoning_effort` não é herdado: cada modelo aceita (ou recusa) o parâmetro.
+        """
+        provider, model = split_model_ref(ref)
+        if not model:
+            raise LLMConfigError(f'Modelo vazio em {ref!r}.')
+        if provider is None or provider == self.provider:
+            return replace(self, model=model, reasoning_effort=reasoning_effort)
+        preset = PROVIDERS[provider]
+        api_key = (os.getenv(preset.api_key_env) if preset.api_key_env else None) or preset.default_api_key
+        if not api_key:
+            raise LLMConfigError(f'Chave de API não encontrada para {provider!r}. Defina {preset.api_key_env}.')
+        return replace(self, provider=provider, base_url=preset.base_url, api_key=api_key, model=model,
+                       reasoning_effort=reasoning_effort)
+
+
+def split_model_ref(ref: str) -> tuple[str | None, str]:
+    """ "groq:llama-3.3-70b" -> ("groq", "llama-3.3-70b"); sem prefixo de provedor conhecido, só o modelo.
+
+    O prefixo só conta se for um preset: nomes do OpenRouter têm ":" ("nvidia/x:free").
+    """
+    ref = ref.strip()
+    prefix, sep, model = ref.partition(':')
+    if sep and prefix.lower() in PROVIDERS:
+        return prefix.lower(), model.strip()
+    return None, ref

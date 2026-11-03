@@ -12,7 +12,8 @@ from llm import (
     ChatResponse, LLMClient, LLMConfig, LLMConfigError, LLMError, LLMService, function_tool, tool_result_message,
 )
 from llm import pricing
-from llm.roles import model_for
+from llm.config import split_model_ref
+from llm.roles import config_for, describe, model_for
 from llm.service import _extract_json, _strict_schema
 
 
@@ -282,6 +283,52 @@ class LLMServiceTests(TestCase):
     def test_papel_desconhecido(self):
         with self.assertRaises(ValueError):
             model_for('juiz', 'm')
+
+
+class ModelPerLayerTests(TestCase):
+    BASE = LLMConfig(model='gpt-6-luna', provider='openai', api_key='sk-base', reasoning_effort='none')
+
+    def test_referencia_com_e_sem_provedor(self):
+        self.assertEqual(split_model_ref('groq:llama-3.3-70b'), ('groq', 'llama-3.3-70b'))
+        self.assertEqual(split_model_ref('gpt-4.1-mini'), (None, 'gpt-4.1-mini'))
+        # ":" do OpenRouter não é prefixo de provedor
+        self.assertEqual(split_model_ref('nvidia/nemotron:free'), (None, 'nvidia/nemotron:free'))
+
+    def test_camada_em_outro_provedor_usa_a_chave_dele(self):
+        env = {'LLM_MODEL_GUARDRAILS': 'groq:llama-3.3-70b', 'GROQ_API_KEY': 'gsk-x'}
+        with mock.patch.dict(os.environ, env):
+            config = config_for('guardrails', self.BASE)
+        self.assertEqual((config.provider, config.model, config.api_key), ('groq', 'llama-3.3-70b', 'gsk-x'))
+        self.assertEqual(config.base_url, 'https://api.groq.com/openai/v1')
+        self.assertIsNone(config.reasoning_effort)  # o do LLM_MODEL não vale para outro modelo
+
+    def test_outro_modelo_do_mesmo_provedor_tem_reasoning_proprio(self):
+        env = {'LLM_MODEL_ROUTER': 'gpt-4.1-mini', 'LLM_REASONING_EFFORT_ROUTER': 'low'}
+        with mock.patch.dict(os.environ, env):
+            config = config_for('router', self.BASE)
+        self.assertEqual((config.model, config.api_key, config.reasoning_effort), ('gpt-4.1-mini', 'sk-base', 'low'))
+        self.assertEqual(config_for('agent', self.BASE), self.BASE)  # sem variável: o LLM_MODEL
+
+    def test_provedor_sem_chave(self):
+        with mock.patch.dict(os.environ, {'LLM_MODEL_ROUTER': 'groq:llama', 'GROQ_API_KEY': ''}):
+            with self.assertRaises(LLMConfigError):
+                config_for('router', self.BASE)
+
+    def test_escolha_da_ui_sobrepoe_o_env_e_describe(self):
+        with mock.patch.dict(os.environ, {'LLM_MODEL_AGENT': 'gpt-4.1'}):
+            self.assertEqual(config_for('agent', self.BASE, 'gpt-4.1-nano', temperature=0.3).model, 'gpt-4.1-nano')
+            roles = describe(self.BASE)
+        self.assertEqual(roles['agent']['ref'], 'gpt-4.1')
+        self.assertEqual(roles['router']['ref'], 'gpt-6-luna')
+
+    def test_servico_com_modelos_trocados(self):
+        env = {'LLM_PROVIDER': 'openai', 'LLM_MODEL': 'gpt-6-luna', 'OPENAI_API_KEY': 'sk-x', 'GROQ_API_KEY': 'gsk-x'}
+        with mock.patch.dict(os.environ, env):
+            service = LLMService.with_overrides({'guardrails': 'groq:llama-3.3-70b', 'router': None},
+                                                agent_temperature=0.2)
+        self.assertEqual(service.client_for('guardrails').config.provider, 'groq')
+        self.assertEqual(service.client_for('agent').config.temperature, 0.2)
+        self.assertEqual(service.client_for('router').config.model, 'gpt-6-luna')
 
 
 class StructuredHelpersTests(TestCase):

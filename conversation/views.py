@@ -17,7 +17,7 @@ from core import clock
 from guardrails.service import MODES
 from guardrails.service import default_mode as guardrails_default_mode
 from llm import LLMConfig, LLMConfigError
-from llm.roles import model_for
+from llm.roles import describe
 from router.service import default_mode as router_default_mode
 from store.hours import store_status
 from store.models import Order
@@ -94,26 +94,29 @@ def _thread_id(request) -> str:
     return request.session['thread_id']
 
 
-def _llm_defaults() -> dict:
+def _roles() -> dict:
+    """Provedor e modelo de cada camada (agente, roteador, guardrails), como o módulo llm resolve."""
     try:
-        config = LLMConfig.from_env()
+        return describe(LLMConfig.from_env())
     except LLMConfigError as exc:
         return {'erro': str(exc)}
-    return {
-        'provedor': config.provider,
-        'base_url': config.base_url or 'https://api.openai.com/v1',
-        'modelo': config.model,
-        'temperatura': config.temperature,
-    }
+
+
+def _llm_defaults() -> dict:
+    roles = _roles()
+    if 'erro' in roles:
+        return roles
+    agent = roles['agent']
+    return {'provedor': agent['provedor'], 'modelo': agent['ref'], 'temperatura': agent['temperatura']}
 
 
 def _stage_defaults() -> dict:
     """Modos e modelos dos estágios no .env, para a seção Estágios da UI."""
-    base = _llm_defaults().get('modelo') or ''
+    roles = _roles()
     return {
         'modos': list(MODES),
-        'guardrails': {'modo': guardrails_default_mode(), 'modelo': model_for('guardrails', base)},
-        'roteador': {'modo': router_default_mode(), 'modelo': model_for('router', base)},
+        'guardrails': {'modo': guardrails_default_mode(), 'modelo': roles.get('guardrails', {}).get('ref', '')},
+        'roteador': {'modo': router_default_mode(), 'modelo': roles.get('router', {}).get('ref', '')},
     }
 
 
@@ -283,6 +286,9 @@ def send_message(request):
 
     try:
         orchestrator = _orchestrator_for(config)
+    except LLMConfigError as exc:  # ex.: "groq:..." sem GROQ_API_KEY no .env
+        return JsonResponse({'erro': str(exc)}, status=400)
+    try:
         options = TurnOptions(now=config.now, router_mode=config.router_mode, guardrails_mode=config.guardrails_mode)
         result = orchestrator.run_turn(_thread_id(request), text, options)
     except Exception:
