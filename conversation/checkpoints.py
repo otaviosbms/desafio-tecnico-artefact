@@ -5,11 +5,14 @@ fallback com SQLite.
 """
 
 import atexit
+import logging
 from functools import cache
 
 from django.db import connection
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import InMemorySaver
+
+from core.logging import LogCategory, log_event
 
 
 def postgres_checkpointer() -> BaseCheckpointSaver:
@@ -38,4 +41,11 @@ def postgres_checkpointer() -> BaseCheckpointSaver:
 @cache
 def default_checkpointer() -> BaseCheckpointSaver:
     """Um checkpointer por processo, compartilhado por todos os orquestradores (modelos)."""
-    return postgres_checkpointer() if connection.vendor == 'postgresql' else InMemorySaver()
+    if connection.vendor == 'postgresql':
+        saver = postgres_checkpointer()
+        log_event('checkpointer_ready', LogCategory.SYSTEM, backend='postgres', persistent=True)
+    else:
+        saver = InMemorySaver()
+        # Sem Postgres o histórico some ao reiniciar: vale um aviso.
+        log_event('checkpointer_ready', LogCategory.SYSTEM, level=logging.WARNING, backend='memory', persistent=False)
+    return saver

@@ -99,6 +99,15 @@ class ToolsTests(TestCase):
             self.assertEqual(result.error, 'missing_contact', contact)
             self.assertIn('Peça ao cliente', result.to_model_payload()['erro'])
 
+    def test_execucao_gera_evento_sem_os_valores_dos_argumentos(self):
+        args = {'numero_pedido': '4', 'email_ou_telefone': 'lucas.mendes@jmail.com'}
+        with self.assertLogs('emporio.events', 'INFO') as logs:
+            ToolExecutor().run('consultar_pedido', args, CTX)
+        executed = next(r.event for r in logs.records if r.event['event'] == 'tool_executed')
+        self.assertEqual((executed['category'], executed['tool'], executed['success']), ('TOOL', 'consultar_pedido', True))
+        self.assertEqual(executed['arguments'], ['email_ou_telefone', 'numero_pedido'])
+        self.assertNotIn('lucas.mendes', str([r.event for r in logs.records]))
+
     def test_pedido_aceita_numero_como_inteiro(self):
         result = run('consultar_pedido', {'numero_pedido': 4, 'email_ou_telefone': 'lucas.mendes@jmail.com'})
         self.assertNotIn('erro', result)

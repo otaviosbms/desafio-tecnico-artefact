@@ -5,6 +5,7 @@ respondeu, junto com o que cada estágio decidiu (guardrails e roteador) e as fe
 """
 
 import json
+import logging
 import uuid
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from django.utils import timezone
 
 from conversation.graph import FALLBACK_REPLY
 from conversation.orchestrator import get_orchestrator
+from core.logging import LogCategory, log_event
 from store.hours import WEEKDAYS
 
 SCENARIOS = {
@@ -162,7 +164,10 @@ class Command(BaseCommand):
                               'assistente': reply.text})
                 self.stdout.write(f'[{name}] Assistente: {reply.text[:120]}...')
             if any(t['assistente'] == FALLBACK_REPLY for t in turns):
+                log_event('example_failed', LogCategory.SYSTEM, level=logging.ERROR, scenario=name, model=model)
                 raise CommandError(f'[{name}] O LLM falhou em alguma resposta; nada foi gravado.')
             path = output / f'{name}.md'
             path.write_text(_render(name, scenario, turns, model, modes, started), encoding='utf-8')
+            log_event('example_generated', LogCategory.SYSTEM, scenario=name, model=model, turns=len(turns),
+                      tools=sorted({c['nome'] for t in turns for c in t['ferramentas']}))
             self.stdout.write(self.style.SUCCESS(f'[{name}] gravado em {path}'))

@@ -17,6 +17,7 @@ from django.conf import settings
 from django.core.management import BaseCommand, CommandError
 from django.utils import timezone
 
+from core.logging import LogCategory, log_event
 from llm import LLMService
 from router.intents import Intent, tools_for
 from router.service import ENFORCE, IntentRouter
@@ -86,6 +87,9 @@ class Command(BaseCommand):
         summary = (f'\nAcerto: {accuracy:.0%} · Cobertura de ferramentas: {coverage:.0%} · '
                    f'Falhas do LLM: {failures} · Meta de acerto: {min_accuracy:.0%}')
         self.stdout.write(self.style.SUCCESS(summary) if accuracy >= min_accuracy else self.style.ERROR(summary))
+        log_event('eval_finished', LogCategory.SYSTEM, eval='router', model=model, cases=total,
+                  accuracy=round(accuracy, 3), coverage=round(coverage, 3), llm_failures=failures,
+                  target=min_accuracy, passed=accuracy >= min_accuracy)
 
         if report:
             path = self._write_report(rows, model, accuracy, coverage, failures)

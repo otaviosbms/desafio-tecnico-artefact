@@ -1,7 +1,10 @@
 """Consulta de pedidos com verificação de identidade e prazos do manual (seções 4 e 8)."""
 
+import logging
 import re
 from datetime import date, timedelta
+
+from core.logging import LogCategory, log_event
 
 from .models import Order
 from .pricing import brl, payment_method_label
@@ -41,6 +44,7 @@ def find_order(number, contact: str) -> Order | None:
     quais números de pedido existem.
     """
     if not str(number).strip().lstrip('#').isdigit():
+        log_event('order_lookup', LogCategory.AUDIT, order=str(number)[:20], outcome='invalid_number')
         return None
     order = (
         Order.objects.select_related('customer')
@@ -48,7 +52,14 @@ def find_order(number, contact: str) -> Order | None:
         .filter(pk=int(str(number).strip().lstrip('#')))
         .first()
     )
-    return order if order and matches_customer(order, contact) else None
+    verified = bool(order and matches_customer(order, contact))
+    # Auditoria (LGPD): quem tentou ver qual pedido e o resultado. O contato não vai para o log; um
+    # contato que não confere fica em WARNING, porque várias tentativas podem ser alguém testando dados.
+    outcome = 'granted' if verified else ('contact_mismatch' if order else 'not_found')
+    log_event('order_lookup', LogCategory.AUDIT, level=None if verified else logging.WARNING,
+              order=str(number).strip().lstrip('#'), outcome=outcome,
+              contact_type='email' if '@' in contact else 'phone')
+    return order if verified else None
 
 
 def _window(start: date, days: int, today: date) -> dict:

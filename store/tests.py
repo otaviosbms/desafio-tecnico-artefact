@@ -138,6 +138,17 @@ class OrderTests(LoadedDataTestCase):
             with self.subTest(number=number, contact=contact):
                 self.assertIsNone(orders.find_order(number, contact))
 
+    def test_consulta_de_pedido_gera_auditoria_sem_o_contato(self):
+        cases = [('4', 'lucas.mendes@jmail.com', 'granted', 'INFO'), ('4', 'outra@pessoa.com', 'contact_mismatch', 'WARNING'),
+                 ('999', '(67) 99812-3456', 'not_found', 'WARNING')]
+        for number, contact, outcome, level in cases:
+            with self.subTest(outcome=outcome), self.assertLogs('emporio.events', 'INFO') as logs:
+                orders.find_order(number, contact)
+            record = logs.records[0]
+            self.assertEqual((record.event['category'], record.event['order'], record.event['outcome'], record.levelname),
+                             ('AUDIT', number, outcome, level))
+            self.assertNotIn(contact, str(record.event))  # o contato nunca vai para o log
+
     def test_prazos_de_pedido_entregue(self):
         order = Order.objects.get(pk=4)  # entregue, previsão 2025-12-22, compra 2025-12-10
         inside = orders.return_windows(order, today=date(2025, 12, 25))

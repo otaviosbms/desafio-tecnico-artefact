@@ -9,6 +9,7 @@ from django.core.management import BaseCommand
 from django.core.management.color import no_style
 from django.db import connection, transaction
 
+from core.logging import LogCategory, log_event
 from store.models import Category, Customer, Order, OrderItem, Product, Promotion
 
 
@@ -114,6 +115,8 @@ class Command(BaseCommand):
             for statement in connection.ops.sequence_reset_sql(no_style(), models):
                 cursor.execute(statement)
 
+        counts = {model._meta.model_name: model.objects.count() for model in models}
         for model in models:
-            self.stdout.write(f'{model._meta.verbose_name_plural}: {model.objects.count()}')
+            self.stdout.write(f'{model._meta.verbose_name_plural}: {counts[model._meta.model_name]}')
+        log_event('data_loaded', LogCategory.SYSTEM, source=str(data_dir), counts=counts)
         self.stdout.write(self.style.SUCCESS('Dados carregados com sucesso.'))

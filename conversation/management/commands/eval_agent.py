@@ -22,6 +22,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from conversation.graph import FALLBACK_REPLY
 from conversation.orchestrator import ConversationOrchestrator, TurnOptions
 from core import clock
+from core.logging import LogCategory, log_event
 
 DEFAULT_DATASET = settings.BASE_DIR / 'evals' / 'agent.jsonl'
 DEFAULT_REPORTS = settings.BASE_DIR / 'evals' / 'reports'
@@ -106,6 +107,8 @@ class Command(BaseCommand):
 
         passed = sum(not r['falhas'] for r in rows)
         summary = f'\nPassaram: {passed}/{len(rows)}'
+        log_event('eval_finished', LogCategory.SYSTEM, eval='agent', model=orchestrator.model, cases=len(rows),
+                  passed_cases=passed, failed=[r['id'] for r in rows if r['falhas']], passed=passed == len(rows))
         self.stdout.write(self.style.SUCCESS(summary) if passed == len(rows) else self.style.ERROR(summary))
         if report:
             path = self._write_report(Path(reports_dir), rows, orchestrator.model, modes, passed)

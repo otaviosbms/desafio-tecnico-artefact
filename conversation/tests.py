@@ -177,13 +177,14 @@ class AgentTests(TestCase):
         self.assertEqual(
             [(e['category'], e['event']) for e in events],
             [('LIFECYCLE', 'turn_started'), ('DECISION', 'guardrails_evaluated'), ('DECISION', 'intent_classified'),
-             ('LLM_CALL', 'llm_call'),
+             ('LLM_CALL', 'llm_call'), ('TOOL', 'tool_executed'),
              ('LLM_CALL', 'llm_call'),
              ('DECISION', 'turn_decided'), ('LIFECYCLE', 'turn_finished')],
         )
         self.assertEqual(len({e['turn_id'] for e in events}), 1)
         self.assertTrue(all(e['thread_id'] == 't1' for e in events))
         self.assertEqual(events[3]['caller'], 'agent.respond')
+        self.assertEqual((events[4]['tool'], events[4]['success'], events[4]['error']), ('listar_promocoes', True, None))
         finished = events[-1]
         self.assertTrue(finished['success'])
         self.assertEqual(finished['llm_calls'], 2)

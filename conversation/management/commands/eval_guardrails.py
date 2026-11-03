@@ -17,6 +17,7 @@ from django.conf import settings
 from django.core.management import BaseCommand, CommandError
 from django.utils import timezone
 
+from core.logging import LogCategory, log_event
 from guardrails.service import ENFORCE, Guardrails
 from llm import LLMService
 
@@ -89,6 +90,9 @@ class Command(BaseCommand):
         summary = (f'\nFalsos bloqueios: {false_blocks}/{len(normal)} · Detecção: {detected}/{len(harmful)} · '
                    f'Severidade correta: {severity_ok}/{detected or 0} · Falhas do LLM: {failures}')
         self.stdout.write(self.style.SUCCESS(summary) if not false_blocks else self.style.ERROR(summary))
+        log_event('eval_finished', LogCategory.SYSTEM, eval='guardrails', cases=len(rows), false_blocks=false_blocks,
+                  detected=detected, harmful=len(harmful), severity_ok=severity_ok, llm_failures=failures,
+                  passed=not false_blocks)
 
         if report:
             path = self._write_report(rows, model, summary.strip())

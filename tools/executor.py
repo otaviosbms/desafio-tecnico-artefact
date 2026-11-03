@@ -12,6 +12,7 @@ O erro volta ao modelo como {"erro": ...}, para ele se corrigir ou seguir sem o 
 
 import json
 import logging
+import time
 from typing import Any
 
 from pydantic import ValidationError
@@ -58,6 +59,7 @@ class ToolExecutor:
             return _failure(name, 'tool_invalid_args', _validation_message(name, exc), arguments,
                             detail=str(exc)[:500])
 
+        start = time.perf_counter()
         try:
             result = handler.execute(ctx, args)
         except Exception as exc:
@@ -66,4 +68,8 @@ class ToolExecutor:
                             f'Falha interna ao executar {name}. Tente novamente ou siga sem esse dado.',
                             arguments, detail=repr(exc))
         result.meta.setdefault('arguments', arguments)
+        # Só os nomes dos argumentos: os valores podem ter dados pessoais (e-mail, telefone).
+        log_event('tool_executed', LogCategory.TOOL, tool=name, duration_ms=round((time.perf_counter() - start) * 1000),
+                  success=result.error is None, error=result.error, transfer_to_human=result.transfer_to_human,
+                  arguments=sorted(args.model_dump(exclude_none=True)))
         return result

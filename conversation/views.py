@@ -14,6 +14,7 @@ from django.urls import reverse
 from django.views.decorators.http import require_POST, require_safe
 
 from core import clock
+from core.logging import LogCategory, log_event
 from guardrails.service import MODES
 from guardrails.service import default_mode as guardrails_default_mode
 from llm import LLMConfig, LLMConfigError
@@ -28,6 +29,12 @@ from .prompts import build_system_prompt
 from .response import to_api
 
 logger = logging.getLogger(__name__)
+
+
+def _reject(request, message: str) -> JsonResponse:
+    """400 com a mensagem para a UI, e um aviso no log com o motivo (nunca o conteúdo enviado)."""
+    log_event('request_rejected', LogCategory.HTTP, level=logging.WARNING, path=request.path, reason=str(message))
+    return JsonResponse({'erro': message}, status=400)
 
 MAX_MESSAGE_LENGTH = 2000
 MODEL_NAME = re.compile(r'^[\w./:@-]{1,200}$')
@@ -227,7 +234,8 @@ def chat(request):
 
 @require_POST
 def new_conversation(request):
-    request.session.pop('thread_id', None)
+    previous = request.session.pop('thread_id', None)
+    log_event('conversation_reset', LogCategory.LIFECYCLE, previous_thread_id=previous)
     if request.headers.get('Accept') == 'application/json':
         return JsonResponse({'thread_id': _thread_id(request)})
     return redirect('conversation:chat')
@@ -239,14 +247,16 @@ def open_conversation(request):
     try:
         thread_id = (json.loads(request.body).get('thread_id') or '').strip()
     except (ValueError, AttributeError):
-        return JsonResponse({'erro': 'Requisição inválida.'}, status=400)
+        return _reject(request, 'Requisição inválida.')
     if not THREAD_ID.match(thread_id):
-        return JsonResponse({'erro': 'Id de conversa inválido.'}, status=400)
+        return _reject(request, 'Id de conversa inválido.')
     request.session['thread_id'] = thread_id
     orchestrator = get_orchestrator()
+    history = orchestrator.history(thread_id)
+    log_event('conversation_opened', LogCategory.LIFECYCLE, opened_thread_id=thread_id, messages=len(history))
     return JsonResponse({
         'thread_id': thread_id,
-        'historico': orchestrator.history(thread_id),
+        'historico': history,
         'rastro': orchestrator.trace(thread_id),
         'decisoes': orchestrator.decisions(thread_id),
     })
@@ -258,7 +268,7 @@ def context(request):
     try:
         now = clock.parse(request.GET.get('agora') or None) or clock.now()
     except ValueError:
-        return JsonResponse({'erro': 'Data/hora simulada inválida.'}, status=400)
+        return _reject(request, 'Data/hora simulada inválida.')
     return JsonResponse({
         'agora': now.isoformat(),
         'situacao_loja': store_status(now),
@@ -280,14 +290,14 @@ def send_message(request):
             raise BadRequest(f'Mensagem muito longa (máximo de {MAX_MESSAGE_LENGTH} caracteres).')
         config = _parse_config(data)
     except BadRequest as exc:
-        return JsonResponse({'erro': str(exc)}, status=400)
+        return _reject(request, str(exc))
     except ValueError:
-        return JsonResponse({'erro': 'Requisição inválida.'}, status=400)
+        return _reject(request, 'Requisição inválida.')
 
     try:
         orchestrator = _orchestrator_for(config)
     except LLMConfigError as exc:  # ex.: "groq:..." sem GROQ_API_KEY no .env
-        return JsonResponse({'erro': str(exc)}, status=400)
+        return _reject(request, str(exc))
     try:
         options = TurnOptions(now=config.now, router_mode=config.router_mode, guardrails_mode=config.guardrails_mode)
         result = orchestrator.run_turn(_thread_id(request), text, options)

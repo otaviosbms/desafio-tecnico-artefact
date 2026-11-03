@@ -158,8 +158,15 @@ def get_orchestrator(model: str | None = None, temperature: float | None = None,
     "provedor:modelo"; quem monta os clientes é o módulo `llm` (LLMService.with_overrides).
     """
     if model is None and temperature is None and router_model is None and guardrails_model is None:
-        return ConversationOrchestrator()
-    service = LLMService.with_overrides(
-        {'agent': model, 'router': router_model, 'guardrails': guardrails_model}, agent_temperature=temperature,
-    )
-    return ConversationOrchestrator(service=service)
+        orchestrator = ConversationOrchestrator()
+    else:
+        service = LLMService.with_overrides(
+            {'agent': model, 'router': router_model, 'guardrails': guardrails_model}, agent_temperature=temperature,
+        )
+        orchestrator = ConversationOrchestrator(service=service)
+    configs = {role: orchestrator.service.client_for(role).config for role in ('agent', 'router', 'guardrails')}
+    log_event('orchestrator_ready', LogCategory.SYSTEM,
+              overrides=any(v is not None for v in (model, temperature, router_model, guardrails_model)),
+              models={role: f'{c.provider}:{c.model}' for role, c in configs.items()},
+              router_mode=orchestrator.router.mode, guardrails_mode=orchestrator.guardrails.mode)
+    return orchestrator

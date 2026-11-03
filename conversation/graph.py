@@ -156,6 +156,7 @@ def build_graph(llm: LLMService, now: Callable[[], datetime] = clock.now, execut
             log_event('human_handoff', LogCategory.DECISION, reason='consecutive_blocks')
         else:
             reply = blocked_reply(last['categoria'], last['requer_humano'])
+        log_event('blocked_reply', LogCategory.DECISION, reason='consecutive_blocks' if too_many else last['categoria'])
         update = {
             'messages': [{'role': 'assistant', 'content': reply}],
             'trace': [{'turno': turn, 'tipo': 'bloqueio', 'motivo': 'bloqueios_seguidos' if too_many
@@ -192,6 +193,8 @@ def build_graph(llm: LLMService, now: Callable[[], datetime] = clock.now, execut
         ]
         # Esgotou as rodadas (ou o roteador não liberou nada): resposta sem ferramentas.
         allow_tools = state.get('tool_rounds', 0) < MAX_TOOL_ROUNDS and bool(definitions)
+        if definitions and not allow_tools:
+            log_event('tool_rounds_exhausted', LogCategory.DEGRADATION, max_rounds=MAX_TOOL_ROUNDS)
         call = llm.chat(caller='agent.respond', role='agent', messages=messages,
                         tools=definitions if allow_tools else None)
         event = _llm_event(_turn(state), call, com_ferramentas=allow_tools,
