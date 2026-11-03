@@ -1,11 +1,19 @@
 import os
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest import TestCase, mock
 
 import openai
 from openai.types.chat import ChatCompletion
+from pydantic import BaseModel
 
-from llm import LLMClient, LLMConfig, LLMConfigError, LLMError, function_tool, tool_result_message
+from core import turn_context
+from llm import (
+    ChatResponse, LLMClient, LLMConfig, LLMConfigError, LLMError, LLMService, function_tool, tool_result_message,
+)
+from llm import pricing
+from llm.roles import model_for
+from llm.service import _extract_json, _strict_schema
 
 
 def _completion(message, finish_reason='stop'):
@@ -123,3 +131,177 @@ class LLMClientTests(TestCase):
     def test_tool_result_message_serializa(self):
         message = tool_result_message('c1', {'preco': 10})
         self.assertEqual(message, {'role': 'tool', 'tool_call_id': 'c1', 'content': '{"preco": 10}'})
+
+
+class ScriptedClient:
+    """LLMClient roteirizado: devolve os resultados em ordem e registra os parâmetros."""
+
+    def __init__(self, *results, model='modelo-teste'):
+        self.config = LLMConfig(model=model, api_key='x')
+        self.results = list(results)
+        self.calls = []
+
+    def chat(self, messages, **kwargs):
+        self.calls.append({'messages': messages, **kwargs})
+        result = self.results.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result if isinstance(result, ChatResponse) else ChatResponse(
+            content=result, usage={'prompt_tokens': 1000, 'completion_tokens': 100, 'total_tokens': 1100},
+        )
+
+
+class Intent(BaseModel):
+    intent: str
+    confidence: float = 1.0
+
+
+MESSAGES = [{'role': 'user', 'content': 'Quanto custa o violão?'}]
+REJECTED = LLMError('response_format json_schema is not supported', status_code=400)
+
+
+class LLMServiceStructuredTests(TestCase):
+    def complete(self, client, **kwargs):
+        service = LLMService(client, **kwargs)
+        with self.assertLogs('emporio.events', 'INFO') as logs:
+            result = service.complete_json(caller='router.classify', role='router', messages=MESSAGES,
+                                           output_model=Intent)
+        return service, result, [r.event for r in logs.records]
+
+    def test_json_schema_estrito(self):
+        client = ScriptedClient('{"intent": "catalogo", "confidence": 0.9}')
+        _, result, events = self.complete(client)
+
+        self.assertEqual(result, Intent(intent='catalogo', confidence=0.9))
+        response_format = client.calls[0]['response_format']
+        self.assertEqual(response_format['type'], 'json_schema')
+        self.assertTrue(response_format['json_schema']['strict'])
+        self.assertEqual(response_format['json_schema']['schema']['required'], ['intent', 'confidence'])
+        self.assertEqual(client.calls[0]['messages'], MESSAGES)  # schema vai no response_format, não no prompt
+        self.assertEqual(events[0]['caller'], 'router.classify')
+
+    def test_provedor_recusa_schema_cai_para_json_object_e_lembra(self):
+        client = ScriptedClient(REJECTED, '{"intent": "pedido"}', '{"intent": "politicas"}')
+        service, result, events = self.complete(client)
+
+        self.assertEqual(result.intent, 'pedido')
+        self.assertEqual(client.calls[1]['response_format'], {'type': 'json_object'})
+        self.assertIn('JSON Schema', client.calls[1]['messages'][-1]['content'])
+        self.assertIn('structured_output_downgraded', [e['event'] for e in events])
+        # A próxima chamada já começa no nível que funcionou.
+        service.complete_json(caller='router.classify', role='router', messages=MESSAGES, output_model=Intent)
+        self.assertEqual(len(client.calls), 3)
+        self.assertEqual(client.calls[2]['response_format'], {'type': 'json_object'})
+
+    def test_ultimo_nivel_extrai_json_do_texto(self):
+        rejected_object = LLMError('Unsupported parameter: response_format', status_code=400)
+        client = ScriptedClient(REJECTED, rejected_object, 'Claro! ```json\n{"intent": "saudacao"}\n``` pronto')
+        _, result, _ = self.complete(client)
+
+        self.assertEqual(result.intent, 'saudacao')
+        self.assertNotIn('response_format', client.calls[2])
+
+    def test_json_invalido_vira_none_e_degradacao(self):
+        _, result, events = self.complete(ScriptedClient('{"confidence": "alta"}'))
+        self.assertIsNone(result)
+        degraded = [e for e in events if e['category'] == 'DEGRADATION']
+        self.assertEqual(degraded[0]['reason'], 'invalid_output')
+
+    def test_erro_de_rede_nao_rebaixa_o_nivel(self):
+        client = ScriptedClient(LLMError('timeout'))
+        service, result, events = self.complete(client)
+        self.assertIsNone(result)
+        self.assertEqual(len(client.calls), 1)
+        self.assertEqual(events[-1]['reason'], 'llm_error')
+        self.assertEqual(service._structured_level, {'modelo-teste': 0})
+
+    def test_nivel_fixo_pela_configuracao(self):
+        client = ScriptedClient('{"intent": "pedido"}')
+        _, result, _ = self.complete(client, structured_output='prompt')
+        self.assertEqual(result.intent, 'pedido')
+        self.assertNotIn('response_format', client.calls[0])
+
+    def test_nivel_invalido(self):
+        with self.assertRaises(ValueError):
+            LLMService(ScriptedClient(), structured_output='xml')
+
+
+class LLMServiceTests(TestCase):
+    def test_complete_text_e_uso_somado_no_turno(self):
+        client = ScriptedClient('  Oi!  ', model='openai/gpt-4o-mini')
+        service = LLMService(client)
+        with self.assertLogs('emporio.events', 'INFO') as logs, turn_context.start_turn('t1') as turn:
+            text = service.complete_text(caller='teste', role='agent', messages=MESSAGES)
+
+        self.assertEqual(text, 'Oi!')
+        self.assertEqual(turn.llm_calls, 1)
+        self.assertEqual(turn.tokens['total_tokens'], 1100)
+        # 1000 × 0,15 + 100 × 0,60 por milhão
+        self.assertEqual(turn.cost_usd, Decimal('0.00021'))
+        event = logs.records[0].event
+        self.assertEqual((event['category'], event['caller'], event['turn_id']), ('LLM_CALL', 'teste', turn.turn_id))
+
+    def test_chat_nunca_lanca(self):
+        service = LLMService(ScriptedClient(LLMError('caiu')))
+        with self.assertLogs('emporio.events', 'INFO'), turn_context.start_turn('t1') as turn:
+            call = service.chat(caller='agent.respond', role='agent', messages=MESSAGES, tools=None)
+        self.assertFalse(call.ok)
+        self.assertEqual(call.error, 'caiu')
+        self.assertEqual(turn.llm_calls, 1)
+
+    def test_texto_vazio_vira_none(self):
+        service = LLMService(ScriptedClient('   '))
+        with self.assertLogs('emporio.events', 'INFO') as logs:
+            self.assertIsNone(service.complete_text(caller='teste', role='agent', messages=MESSAGES))
+        self.assertEqual(logs.records[-1].event['reason'], 'empty_response')
+
+    def test_modelo_por_papel(self):
+        base = ScriptedClient(model='grande')
+        with mock.patch.dict(os.environ, {'LLM_MODEL_ROUTER': 'pequeno'}):
+            service = LLMService(base)
+            self.assertIs(service.client_for('agent'), base)
+            router = service.client_for('router')
+        self.assertEqual(router.config.model, 'pequeno')
+        self.assertEqual(router.config.api_key, base.config.api_key)  # mesmo provedor e chave
+        self.assertIs(service.client_for('router'), router)  # em cache
+
+    def test_cliente_fixo_por_papel(self):
+        fixed = ScriptedClient(model='escolhido-na-ui')
+        with mock.patch.dict(os.environ, {'LLM_MODEL_AGENT': 'do-env'}):
+            service = LLMService(ScriptedClient(), role_clients={'agent': fixed})
+            self.assertIs(service.client_for('agent'), fixed)
+
+    def test_papel_desconhecido(self):
+        with self.assertRaises(ValueError):
+            model_for('juiz', 'm')
+
+
+class StructuredHelpersTests(TestCase):
+    def test_strict_schema_inclui_objetos_aninhados(self):
+        class Inner(BaseModel):
+            a: int = 0
+
+        class Outer(BaseModel):
+            inner: Inner
+            note: str | None = None
+
+        schema = _strict_schema(Outer.model_json_schema())
+        self.assertFalse(schema['additionalProperties'])
+        self.assertEqual(schema['required'], ['inner', 'note'])
+        self.assertEqual(schema['$defs']['Inner']['required'], ['a'])
+
+    def test_extract_json(self):
+        self.assertEqual(_extract_json('ok {"a": {"b": 1}} fim {"c": 2}'), '{"a": {"b": 1}}')
+        self.assertEqual(_extract_json('{quebrado} depois {"a": 1}'), '{"a": 1}')
+        self.assertIsNone(_extract_json('sem json'))
+        self.assertIsNone(_extract_json(None))
+
+
+class PricingTests(TestCase):
+    def test_custos(self):
+        usage = {'prompt_tokens': 1_000_000, 'completion_tokens': 1_000_000}
+        self.assertEqual(pricing.cost('gpt-4o-mini', usage), Decimal('0.75'))
+        self.assertEqual(pricing.cost('openai/gpt-4o-mini', usage), Decimal('0.75'))
+        self.assertEqual(pricing.cost('nvidia/nemotron-3-ultra-550b-a55b:free', usage), 0)
+        with self.assertLogs('llm.pricing', 'WARNING'):
+            self.assertEqual(pricing.cost('modelo-sem-preco-x', usage), 0)

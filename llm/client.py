@@ -20,6 +20,10 @@ Message = dict[str, Any]
 class LLMError(RuntimeError):
     """Falha ao chamar o provedor (rede, autenticação, limite, etc.)."""
 
+    def __init__(self, message: str, status_code: int | None = None):
+        super().__init__(message)
+        self.status_code = status_code  # HTTP do provedor, quando houver (400, 429, ...)
+
 
 @dataclass
 class ToolCall:
@@ -114,7 +118,7 @@ class LLMClient:
         try:
             completion = self._client.chat.completions.create(**params)
         except openai.APIError as exc:
-            raise LLMError(f'[{self.config.provider}] {exc}') from exc
+            raise LLMError(f'[{self.config.provider}] {exc}', getattr(exc, 'status_code', None)) from exc
 
         choice = completion.choices[0]
         usage = completion.usage.model_dump(include={'prompt_tokens', 'completion_tokens', 'total_tokens'}) if completion.usage else {}
@@ -133,4 +137,4 @@ class LLMClient:
                 if chunk.choices and chunk.choices[0].delta.content:
                     yield chunk.choices[0].delta.content
         except openai.APIError as exc:
-            raise LLMError(f'[{self.config.provider}] {exc}') from exc
+            raise LLMError(f'[{self.config.provider}] {exc}', getattr(exc, 'status_code', None)) from exc
