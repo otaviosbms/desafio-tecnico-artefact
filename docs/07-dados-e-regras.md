@@ -1,4 +1,7 @@
-# Dados
+# 7. Dados e regras de negócio
+
+Os dados do desafio, como foram carregados, as regras do manual e as suposições feitas onde os
+dados ou o manual não bastam.
 
 ## Tabelas (`data/*.csv`)
 
@@ -56,7 +59,7 @@ Casos especiais úteis para os exemplos de conversa:
 - **Promoções:** mostrar o preço original, o percentual e o preço final.
 - **Fora do expediente:** informar o horário de retorno.
 
-## Inconsistências encontradas (assumir e documentar no README)
+## Inconsistências encontradas no manual
 
 | Tema | Conflito | Suposição adotada |
 |---|---|---|
@@ -78,3 +81,7 @@ Casos especiais úteis para os exemplos de conversa:
 | `coming_soon` com estoque | Não é vendável ainda |
 | Mais de uma promoção ativa no mesmo produto | Vale a de maior desconto (promoções não são cumulativas) |
 | Frete grátis "acima de R$ 500" | Estritamente maior que R$ 500; o mesmo vale para "acima de R$ 2.000" na combinação de formas de pagamento |
+
+---
+
+Anterior: [6. Ferramentas e políticas](06-tools.md) · [Índice](README.md) · Próximo: [8. Ambiente de testes](08-ambiente-de-testes.md)

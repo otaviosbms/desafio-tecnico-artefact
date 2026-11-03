@@ -1,0 +1,152 @@
+# 5. Camada de LLM (`llm/`)
+
+Integração genérica com qualquer LLM cujo provedor siga o padrão de **Chat Completions** do
+SDK da OpenAI. O provedor e o modelo são escolhidos apenas pelo `.env`.
+
+## Por que um módulo próprio
+
+- **Um padrão, vários provedores:** a API de Chat Completions virou o padrão de fato. OpenAI,
+  Anthropic, Gemini, Groq, OpenRouter, DeepSeek, Ollama e LM Studio expõem endpoints compatíveis.
+  Um módulo fino com presets permite **trocar de provedor ou modelo só pelo `.env`**, inclusive
+  rodar 100% local com Ollama, sem chave paga.
+- **Chat Completions, não a Responses API:** a Responses API é específica da OpenAI.
+- **Respostas normalizadas** (`ChatResponse`, `ToolCall`): o resto do projeto não depende dos
+  tipos do SDK, e argumentos de ferramenta com JSON inválido não derrubam o agente.
+- **Alternativas descartadas:** `langchain-openai` (mais uma camada de abstração e dependência) e
+  LiteLLM (bom, mas desnecessário quando o padrão OpenAI já cobre os provedores desejados).
+
+O módulo tem duas camadas: o `LLMClient` (transporte: `chat` e `stream`) e o `LLMService` (o ponto
+único de chamada do resto do projeto, com papel, logs, custo e saída estruturada).
+
+## Modelo em uso
+
+**OpenRouter** com `nvidia/nemotron-3-ultra-550b-a55b:free`: gratuito e com suporte a function
+calling. Escolheu as ferramentas certas, com argumentos corretos, nos testes reais.
+
+  `LLM_TIMEOUT` local foi elevado para 180 s (o padrão é 60 s).
+  timeout foi elevado para 180 s.
+- **Cota:** o plano gratuito limita as requisições por dia (erro 429); ver o capítulo 10.
+- Para uma demo, vale comparar com um modelo menor ou pago; a troca é só no `.env`.
+
+## Configuração
+
+| Variável | Descrição |
+|---|---|
+| `LLM_PROVIDER` | Preset: `openai` (padrão), `anthropic`, `gemini`, `groq`, `openrouter`, `deepseek`, `ollama`, `lmstudio` ou `custom` |
+| `LLM_MODEL` | Nome do modelo no provedor (obrigatório) |
+| `LLM_BASE_URL` | Sobrescreve a URL do preset (obrigatório para `custom`) |
+| `LLM_API_KEY` | Sobrescreve a chave; sem ela, usa a variável do provedor (`OPENAI_API_KEY`, `GROQ_API_KEY`, ...) |
+| `LLM_TEMPERATURE` | Opcional; se ausente, não é enviada (alguns modelos de raciocínio a rejeitam) |
+| `LLM_TIMEOUT` / `LLM_MAX_RETRIES` | Padrão: 60 s e 2 tentativas |
+| `LLM_MODEL_AGENT` / `LLM_MODEL_ROUTER` / `LLM_MODEL_GUARDRAILS` | Modelo por papel (mesmo provedor e chave); vazio = `LLM_MODEL` |
+| `LLM_STRUCTURED_OUTPUT` | `auto` (padrão), `json_schema`, `json_object` ou `prompt` (ver abaixo) |
+
+Exemplos:
+
+```env
+# OpenAI
+LLM_PROVIDER=openai
+LLM_MODEL=gpt-4.1-mini
+OPENAI_API_KEY=sk-...
+
+# Local, sem custo (precisa do Ollama rodando)
+LLM_PROVIDER=ollama
+LLM_MODEL=qwen2.5:7b
+
+# Qualquer outro endpoint compatível
+LLM_PROVIDER=custom
+LLM_BASE_URL=https://meu-provedor/v1
+LLM_API_KEY=...
+LLM_MODEL=...
+```
+
+Para function calling, o modelo escolhido precisa suportar ferramentas.
+
+## Uso
+
+```python
+from llm import LLMClient, function_tool, tool_result_message
+
+client = LLMClient()  # lê o .env; ou LLMClient(LLMConfig(...))
+
+tools = [function_tool('buscar_produtos', 'Busca no catálogo', {
+    'type': 'object',
+    'properties': {'termo': {'type': 'string'}},
+    'required': ['termo'],
+})]
+
+messages = [{'role': 'user', 'content': 'Tem violão Yamaha?'}]
+resp = client.chat(messages, tools=tools)
+messages.append(resp.to_message())          # guarda a resposta no histórico
+for call in resp.tool_calls:                 # call.arguments já vem como dict
+    result = {'erro': call.arguments_error} if call.arguments_error else executar(call)
+    messages.append(tool_result_message(call.id, result))
+resp = client.chat(messages, tools=tools)   # resposta final em resp.content
+
+for trecho in client.stream(messages):       # streaming de texto
+    print(trecho, end='')
+```
+
+Erros do provedor (rede, autenticação, rate limit) viram `LLMError`. Problemas de
+configuração geram `LLMConfigError`.
+
+## `LLMService`: o ponto único de chamada (`llm/service.py`)
+
+O agente, o roteador e os guardrails não usam o `LLMClient` direto: toda
+chamada passa pelo `LLMService`, que recebe sempre **quem chamou** (`caller`) e **o papel**
+(`role`), e acrescenta:
+
+- **modelo por papel** (`llm/roles.py`): `agent`, `router` e `guardrails`, cada um com a sua
+  variável `LLM_MODEL_*`. A UI de testes pode trocar o modelo de cada papel por mensagem;
+- **logs e uso:** cada chamada gera um `LLM_CALL` (caller, papel, modelo, duração, tokens, custo,
+  sucesso) e soma tokens e custo no `TurnContext` do turno;
+- **custo estimado** (`llm/pricing.py`): tabela em US$ por 1M de tokens. Modelos `:free` custam 0;
+  um modelo fora da tabela custa 0 e gera um aviso, uma vez por modelo;
+- **nunca lança exceção:** `chat` devolve um `LLMCall` (`response` é `None` em caso de falha, com
+  o motivo em `error`); `complete_text` e `complete_json` devolvem `None` e registram uma
+  `DEGRADATION`. Quem chama decide o fallback.
+
+```python
+from llm import LLMService
+
+service = LLMService()
+call = service.chat(caller='agent.respond', role='agent', messages=messages, tools=tools)
+if call.ok:
+    resposta = call.response          # ChatResponse, como o do LLMClient
+print(call.model, call.duration_ms, call.cost_usd)
+
+class Intencao(BaseModel):
+    intent: str
+    confidence: float
+
+resultado = service.complete_json(caller='router.classify', role='router',
+                                  messages=messages, output_model=Intencao)  # Intencao | None
+```
+
+### Saída estruturada em três níveis
+
+Nem todo provedor compatível com a OpenAI aceita `response_format` com `json_schema`. Em `auto`,
+o `complete_json` tenta, nesta ordem:
+
+1. **`json_schema` estrito:** o schema do Pydantic, ajustado ao modo `strict` da OpenAI
+   (`additionalProperties: false` e todas as propriedades em `required`, inclusive em objetos
+   aninhados);
+2. **`json_object`:** se o provedor recusar o nível 1 (HTTP 400/404/422 ou mensagem citando
+   `response_format`/`unsupported`), com o schema descrito numa mensagem de sistema;
+3. **`prompt`:** se também recusar o nível 2, sem `response_format`; o primeiro objeto `{...}` do
+   texto é extraído (tolera cercas de código e texto em volta).
+
+- O nível que funcionou fica em memória por modelo, para não repetir as tentativas recusadas.
+- Erros de rede, cota (429) ou timeout **não** rebaixam o nível: devolvem `None` direto.
+- Em todos os níveis a resposta é validada com `output_model.model_validate_json`. JSON inválido
+  ou fora do schema vira `None` com `DEGRADATION` (`reason='invalid_output'`).
+- `LLM_STRUCTURED_OUTPUT` fixa um nível (útil quando já se sabe o que o provedor suporta).
+
+## Testes
+
+`python manage.py test llm`: usa clientes falsos, sem rede. Cobre cada nível de saída estruturada,
+a memória do nível por modelo, JSON inválido, erro de rede, modelo por papel e custo.
+
+---
+
+Anterior: [4. Estágios de IA](04-estagios-de-ia.md) · [Índice](README.md) · Próximo: [6. Ferramentas e políticas](06-tools.md)
