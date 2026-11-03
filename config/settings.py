@@ -50,6 +50,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    'core.observability.middleware.RequestLogMiddleware',  # request_id e evento http_request
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -139,28 +140,35 @@ MAILERS = {
 }
 
 
-# Logging
-# Eventos estruturados do agente (core/logging.py): uma linha JSON por evento no console.
-# LOG_LEVEL=WARNING mostra só degradações e falhas silenciosas. Nos testes, só erros.
+# Logging: centralizador em core/observability. Todo logger propaga até o root, onde o
+# CentralHandler (fila) entrega o mesmo JSON a cada sink de LOG_SINKS (console, file, ...).
+# LOG_LEVEL=WARNING mostra só avisos, degradações e falhas. Nos testes, nenhum sink (os testes
+# usam assertLogs) e só erros.
 
 TESTING = sys.argv[1:2] == ['test']
+LOG_LEVEL = 'ERROR' if TESTING else os.getenv('LOG_LEVEL', 'INFO')
 
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
-    'formatters': {
-        'event': {'format': '%(asctime)s %(levelname)s %(message)s'},
-    },
     'handlers': {
-        'console': {'class': 'logging.StreamHandler', 'formatter': 'event'},
-    },
-    'loggers': {
-        'emporio.events': {
-            'handlers': ['console'],
-            'level': 'ERROR' if TESTING else os.getenv('LOG_LEVEL', 'INFO'),
-            'propagate': False,
+        'central': {
+            '()': 'core.observability.CentralHandler',
+            'sinks': [] if TESTING else os.getenv('LOG_SINKS', 'console'),
         },
+    },
+    'root': {'handlers': ['central'], 'level': LOG_LEVEL},
+    'loggers': {
+        'emporio.events': {'level': LOG_LEVEL},
         # Avisos do pacote de LLM (ex.: modelo sem preço na tabela).
-        'llm': {'handlers': ['console'], 'level': 'ERROR' if TESTING else 'WARNING', 'propagate': False},
+        'llm': {'level': 'ERROR' if TESTING else 'WARNING'},
+        # Os handlers próprios do Django saem: tudo vai pelo root, no mesmo formato. O log de acesso
+        # do runserver fica só para erros (o middleware já registra cada requisição).
+        'django': {'handlers': [], 'level': 'INFO', 'propagate': True},
+        'django.server': {'handlers': [], 'level': 'WARNING', 'propagate': True},
+        # Bibliotecas HTTP do SDK de LLM: cada chamada já vira um evento llm_call.
+        'httpx': {'level': 'WARNING'},
+        'httpx2': {'level': 'WARNING'},
+        'openai': {'level': 'WARNING'},
     },
 }

@@ -1,11 +1,10 @@
-"""Logs estruturados por categoria.
+"""Eventos estruturados por categoria.
 
-Cada evento é uma linha JSON no logger `emporio.events`, sempre com `turn_id` e
-`thread_id` do turno atual. Os campos também vão em `record.event`, para testes e
-handlers que queiram o dict sem reparsear o JSON.
+Cada evento é um registro no logger `emporio.events`: a mensagem é o nome do evento e os campos
+vão em `record.event`, sempre com `turn_id` e `thread_id` do turno atual. O centralizador
+(core/observability) junta esses campos ao JSON de saída, igual para todos os sinks.
 """
 
-import json
 import logging
 from enum import StrEnum
 
@@ -20,6 +19,10 @@ class LogCategory(StrEnum):
     DECISION = 'DECISION'  # decisões do pipeline (guardrails, intenção, ferramentas liberadas)
     DEGRADATION = 'DEGRADATION'  # um estágio usou fallback
     SILENT_FAILURE = 'SILENT_FAILURE'  # erro que não interrompe o turno
+    HTTP = 'HTTP'  # requisições HTTP (status e duração)
+    TOOL = 'TOOL'  # execução de cada ferramenta (duração, resultado)
+    AUDIT = 'AUDIT'  # acesso a dados pessoais (consulta de pedido), sem gravar o dado em si
+    SYSTEM = 'SYSTEM'  # subida e configuração dos componentes, carga de dados, comandos
 
 
 LEVELS = {
@@ -28,7 +31,8 @@ LEVELS = {
 }
 
 
-def log_event(name: str, category: LogCategory, **fields) -> dict:
+def log_event(name: str, category: LogCategory, *, level: int | None = None, **fields) -> dict:
+    """`level` sobrescreve o nível padrão da categoria (ex.: um evento de AUDIT que merece WARNING)."""
     context = turn_context.current()
     event = {
         'event': name,
@@ -37,9 +41,5 @@ def log_event(name: str, category: LogCategory, **fields) -> dict:
         'thread_id': context.thread_id if context else None,
         **fields,
     }
-    logger.log(
-        LEVELS.get(category, logging.INFO),
-        json.dumps(event, ensure_ascii=False, default=str),
-        extra={'event': event},
-    )
+    logger.log(level or LEVELS.get(category, logging.INFO), name, extra={'event': event})
     return event
