@@ -40,9 +40,8 @@ Cada decisão traz o motivo e as alternativas descartadas. Os detalhes estão no
   mensagem, em sequência. Guardrails e roteador são independentes e poderiam rodar em paralelo; um
   modelo menor para eles (`LLM_MODEL_ROUTER`, `LLM_MODEL_GUARDRAILS`) também ajuda.
 - **Modelo:** com o `gpt-6-luna` (OpenAI), uma chamada leva de 1 a 4 s. Ele exige
-  `reasoning_effort=none` para usar ferramentas, e essa configuração vale para os três papéis (o
-  roteador caiu de 97% para 89% numa rodada sem raciocínio, antes das correções do capítulo 9); um
-  valor por papel seria a melhoria.
+  `reasoning_effort=none` para usar ferramentas; essa configuração vale para o modelo padrão, e uma
+  camada que usa outro modelo tem a sua (`LLM_REASONING_EFFORT_<CAMADA>`).
 - **Modelo gratuito (usado antes):** `nemotron-3-ultra-550b:free` via OpenRouter tem latência muito variável (de
   ~1 s a minutos por chamada) e cota diária (erro 429 `free-models-per-day`; com US$ 10 em créditos o
   limite sobe para 1.000 requisições por dia). Sem cota, o agente responde com a mensagem de
