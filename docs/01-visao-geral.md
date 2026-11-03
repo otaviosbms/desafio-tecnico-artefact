@@ -56,7 +56,7 @@ mensagem ─► guardrails ─► roteador de intenção ─► agente ⇄ ferra
 - **Provedor de LLM:** qualquer um compatível com a API de Chat Completions da OpenAI, escolhido
   pelo `.env`, com modelo próprio para cada papel (agente, roteador, guardrails).
 - **Ambiente de testes:** uma UI web que mostra, por mensagem, o rastro das chamadas, as decisões
-  dos estágios, o system prompt e os schemas, com data/hora simulada e troca de modelo.
+  dos estágios, o system prompt e os schemas, com data/hora simulada e modo dos estágios por mensagem.
 
 Stack: Python 3.14, Django 6, LangGraph, SDK da OpenAI, PostgreSQL (com fallback para SQLite). Tudo
 roda com `docker compose up`: aplicação, banco e pgAdmin.
@@ -65,7 +65,7 @@ roda com `docker compose up`: aplicação, banco e pgAdmin.
 
 ```
 config/          projeto Django (settings lidos do .env, banco via DATABASE_URL, LOGGING)
-core/            infraestrutura transversal: relógio, TurnContext, logs estruturados, texto
+core/            infraestrutura transversal: relógio, TurnContext, centralizador de logs, texto
 llm/             integração genérica com LLMs compatíveis com o SDK da OpenAI (cap. 5)
 store/           dados da loja (models) e regras de negócio: catálogo, preços, pedidos, horário (cap. 7)
 knowledge/       manual de políticas em seções Markdown + consulta por tópico (cap. 6)

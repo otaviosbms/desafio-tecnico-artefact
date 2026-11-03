@@ -70,7 +70,7 @@ Depois de mudar o código, rode `docker compose up -d --build` de novo.
 ### Testes e avaliações
 
 ```bash
-docker compose exec web python manage.py test                   # 183 testes, sem rede (LLM falso)
+docker compose exec web python manage.py test                   # 190 testes, sem rede (LLM falso)
 docker compose exec web python manage.py eval_router --report   # avaliações com o LLM real
 docker compose exec web python manage.py eval_guardrails --report
 docker compose exec web python manage.py eval_agent --report
@@ -98,8 +98,8 @@ Postgres próprio, defina `DATABASE_URL=postgres://usuario:senha@host:porta/banc
 | **Ferramentas** | 6 ferramentas tipadas com Pydantic: busca, detalhes, promoções, pagamento, pedido, políticas. Preços, PIX, parcelamento e prazos são calculados em Python | [Cap. 6](docs/06-tools.md) |
 | **Políticas** | O manual em PDF virou 9 seções Markdown revisadas, consultadas por tópico | [Cap. 6](docs/06-tools.md) |
 | **Camada de LLM** | Um módulo para qualquer provedor compatível com a OpenAI, modelo e provedor por camada, custo estimado, saída estruturada em 3 níveis | [Cap. 5](docs/05-camada-llm.md) |
-| **Ambiente de testes** | UI com data/hora simulada, troca de modelo e de modo dos estágios por mensagem, e um inspetor com rastro, decisões, prompt e schemas | [Cap. 8](docs/08-ambiente-de-testes.md) |
-| **Qualidade** | Eventos estruturados por turno, 172 testes, snapshots dos prompts, teste da regra de camadas e 3 avaliações com o LLM real | [Cap. 9](docs/09-observabilidade-e-testes.md) |
+| **Ambiente de testes** | UI com data/hora simulada e modo dos estágios por mensagem, e um inspetor com rastro, decisões, prompt e schemas | [Cap. 8](docs/08-ambiente-de-testes.md) |
+| **Qualidade** | Centralizador de logs (um JSON para toda a aplicação, sinks plugáveis para Kafka e New Relic), 190 testes, snapshots dos prompts, teste da regra de camadas e 3 avaliações com o LLM real | [Cap. 9](docs/09-observabilidade-e-testes.md) |
 
 ## Decisões técnicas
 

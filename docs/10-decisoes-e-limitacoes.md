@@ -20,6 +20,7 @@ Cada decisão traz o motivo e as alternativas descartadas. Os detalhes estão no
 | **Verificação de identidade** nos pedidos (cap. 6) | LGPD: número + e-mail ou telefone; mesma mensagem para pedido inexistente e contato errado | Consultar só pelo número |
 | **System prompt fora do estado** (cap. 3) | Montado a cada chamada com a data/hora e a situação da loja; o histórico não envelhece | Guardar o prompt no histórico |
 | **Observabilidade estruturada** (cap. 9) | `TurnContext` + eventos JSON por categoria; rastro e decisões por mensagem na UI | Logs soltos com `print` |
+| **Centralizador de logs sobre o `logging` do Python** (cap. 9) | Um JSON e um contexto (`request_id`, `turn_id`) para toda a aplicação, inclusive os logs do Django; fila para não travar a requisição; sinks plugáveis (Kafka, New Relic) sem mudar quem loga | Biblioteca de logs externa (structlog, loguru): mais uma dependência para o mesmo resultado |
 | **Snapshots, teste de camadas e avaliações** (cap. 9) | Mudanças no texto enviado ao LLM aparecem no diff; a arquitetura não se degrada; o modelo real é medido | Só testes unitários com LLM falso |
 
 ## Limitações conhecidas

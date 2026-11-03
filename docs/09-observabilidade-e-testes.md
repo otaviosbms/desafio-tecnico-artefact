@@ -1,36 +1,140 @@
 # 9. Observabilidade e testes
 
-## Eventos estruturados por turno
+## Centralizador de logs (`core/observability/`)
 
-Cada `run_turn` abre um `TurnContext` (`core/turn_context.py`), guardado num `ContextVar`. Qualquer
-camada (grafo, estágios, ferramentas, `LLMService`) lê o turno atual sem recebê-lo por parâmetro, e
-o `LLMService` soma nele as chamadas, os tokens e o custo.
+O Django não traz um centralizador: ele usa o `logging` do Python, configurado pelo `LOGGING` do
+settings, que é só o ponto de encaixe. O projeto monta um caminho único em cima dele:
 
-`core.logging.log_event` grava uma linha JSON no logger `emporio.events`, sempre com `turn_id` e
-`thread_id`, em cinco categorias:
+```
+qualquer logger (emporio.events, llm, django, conversation.views, tools.executor, ...)
+  └─ root ─► CentralHandler: ContextFilter (contexto) ─► fila em memória
+                  └─ thread do QueueListener ─► sinks de LOG_SINKS: console, file, (kafka, newrelic, ...)
+```
 
-| Categoria | Eventos | Nível |
+| Peça | O que faz |
+|---|---|
+| `CentralHandler` | Único handler do root. Põe cada registro numa fila e uma thread entrega aos sinks: um destino lento (rede, Kafka) não atrasa a requisição. Esvazia a fila ao encerrar o processo |
+| `ContextFilter` | Antes da fila, copia o contexto da execução para o registro: `request_id`, `turn_id`, `thread_id` |
+| `JsonFormatter` | O mesmo JSON para todos os sinks (abaixo) |
+| `RequestLogMiddleware` | Primeiro middleware: dá um `request_id` a cada requisição (respeita o `X-Request-ID` recebido, para rastrear entre serviços), devolve no cabeçalho da resposta e registra `http_request` com método, rota, status e duração |
+| Sinks (`sinks.py`) | `console` (stdout, padrão; é o que um container expõe) e `file` (JSON Lines com rotação em `LOG_FILE`, padrão `logs/app.jsonl`, para um agente de coleta) |
+
+Os handlers próprios do Django foram desligados: os logs dele (`django.request`, erros 500 com
+traceback) também passam pelo root, no mesmo formato. O log de acesso do `runserver` ficou só para
+erros, porque o middleware já registra cada requisição.
+
+### Formato
+
+Uma linha JSON por registro, com os mesmos campos em qualquer sink:
+
+```json
+{"timestamp": "2026-11-03T04:09:25.494+00:00", "level": "INFO", "logger": "emporio.events",
+ "message": "http_request", "service": "emporio-agente", "environment": "local",
+ "request_id": "teste-hud-1", "turn_id": null, "thread_id": null,
+ "event": "http_request", "category": "HTTP", "method": "GET", "path": "/api/contexto/", "status": 200, "duration_ms": 4}
+```
+
+- `service` e `environment` vêm de `SERVICE_NAME` e `APP_ENV` (padrão `emporio-agente` e `local`).
+- Eventos do `log_event` trazem os campos deles no nível de cima (`event`, `category`, `caller`,
+  `tokens`, `cost_usd`, ...); logs comuns têm só a mensagem.
+- Exceções saem no campo `exception`, com o traceback.
+- Uma mensagem do cliente gera logs com o mesmo `request_id` (a requisição HTTP) e o mesmo
+  `turn_id` (o turno no grafo): dá para juntar tudo o que aconteceu nela numa consulta.
+
+### Eventos estruturados
+
+`core.logging.log_event` registra eventos no logger `emporio.events`, sempre com `turn_id` e
+`thread_id` do turno atual (`TurnContext`, guardado num `ContextVar`):
+
+| Categoria | Eventos | Onde | Nível |
+|---|---|---|---|
+| `HTTP` | `http_request` (método, rota, status, duração); `request_rejected` (rota e motivo de um 400) | middleware, views | INFO; WARNING no 400 |
+| `LIFECYCLE` | `turn_started`, `turn_finished` (sucesso, duração, nº de chamadas, tokens, custo); `conversation_reset`, `conversation_opened` | orquestrador, views | INFO |
+| `LLM_CALL` | `llm_call` (caller, papel, modelo, duração, tokens, custo, sucesso, nível de saída estruturada) | `LLMService` | INFO |
+| `DECISION` | `guardrails_evaluated`, `intent_classified`, `human_handoff`, `blocked_reply`, `turn_decided` | guardrails, roteador, grafo | INFO |
+| `TOOL` | `tool_executed` (ferramenta, duração, sucesso, código de erro, transferência, **nomes** dos argumentos) | executor | INFO |
+| `AUDIT` | `order_lookup` (pedido, resultado `granted`/`contact_mismatch`/`not_found`, tipo de contato) | `store/orders.py` | INFO; WARNING se negado |
+| `SYSTEM` | `orchestrator_ready` (provedor e modelo de cada camada, modos), `checkpointer_ready` (Postgres ou memória), `data_loaded`, `eval_finished` (métricas), `example_generated` | subida, comandos | INFO; WARNING sem Postgres |
+| `DEGRADATION` | `fallback_reply`, `llm_degraded`, `structured_output_downgraded`, `guardrails_fail_open`, `router_fail_open`, `tool_rounds_exhausted` | vários | WARNING |
+| `SILENT_FAILURE` | `tool_not_found`, `tool_invalid_args`, `tool_not_allowed`, `tool_failed` | executor | WARNING |
+
+**Dados pessoais (LGPD) ficam fora dos logs:** o texto das mensagens, e-mails e telefones nunca são
+registrados. `tool_executed` grava só os nomes dos argumentos, e `order_lookup` grava o número do
+pedido e o tipo de contato (`email` ou `phone`), não o contato. Há testes para isso. A auditoria
+de pedidos em WARNING ajuda a notar alguém testando contatos em vários pedidos.
+
+Exemplo real de uma mensagem ("Qual o status do pedido 4? Meu e-mail é ..."), resumido: todos os
+registros têm o mesmo `request_id` e `turn_id`.
+
+```
+SYSTEM     orchestrator_ready     models={agent: openai:gpt-6-luna, ...}
+LIFECYCLE  turn_started
+LLM_CALL   llm_call               caller=guardrails.evaluate  2274 ms
+DECISION   guardrails_evaluated   permitido=true
+LLM_CALL   llm_call               caller=router.classify      1567 ms
+DECISION   intent_classified      intencoes=[pedido]
+LLM_CALL   llm_call               caller=agent.respond        1125 ms
+AUDIT      order_lookup           order=4 outcome=granted contact_type=email
+TOOL       tool_executed          tool=consultar_pedido 3 ms success=true
+LLM_CALL   llm_call               caller=agent.respond        1779 ms
+DECISION   turn_decided           transfer=false
+LIFECYCLE  turn_finished          6763 ms, 4 chamadas, 6084 tokens
+HTTP       http_request           POST /api/mensagem/ 200 6907 ms
+```
+
+### Configuração (`.env`)
+
+| Variável | Padrão | Uso |
 |---|---|---|
-| `LIFECYCLE` | `turn_started`, `turn_finished` (sucesso, duração, nº de chamadas, tokens, custo) | INFO |
-| `LLM_CALL` | `llm_call` (caller, papel, modelo, duração, tokens, custo, sucesso, nível de saída estruturada) | INFO |
-| `DECISION` | `guardrails_evaluated`, `intent_classified`, `human_handoff` | INFO |
-| `DEGRADATION` | `fallback_reply`, `llm_degraded`, `structured_output_downgraded`, `guardrails_fail_open`, `router_fail_open` | WARNING |
-| `SILENT_FAILURE` | `tool_not_found`, `tool_arguments_invalid`, `tool_failed` | WARNING |
+| `LOG_SINKS` | `console` | Destinos, separados por vírgula (ex.: `console,file`) |
+| `LOG_LEVEL` | `INFO` | `WARNING` mostra só avisos, degradações e falhas |
+| `LOG_FILE` | `logs/app.jsonl` | Arquivo do sink `file` (rotação a cada 10 MB, 5 arquivos) |
+| `SERVICE_NAME`, `APP_ENV` | `emporio-agente`, `local` | Identificam a origem nos sistemas de logs |
 
-Exemplo de um turno (console do `runserver`):
+Nos testes não há sinks (os testes usam `assertLogs`). O CLI `chat` esconde os eventos INFO, a
+menos que receba `--logs`. O rastro da UI (`trace` no estado do grafo) é separado: é por conversa e
+vai para o inspetor; os logs são por processo e vão para os sinks.
 
+### Integrar com Kafka e New Relic
+
+Há dois caminhos, e os dois usam o mesmo JSON:
+
+**1. Coletor fora da aplicação (recomendado em produção).** A aplicação só escreve no stdout
+(`console`) ou em arquivo (`file`), e um agente de coleta (Fluent Bit, Vector, OpenTelemetry
+Collector) lê e envia para o Kafka, o New Relic ou os dois. A aplicação não ganha dependência,
+não segura conexões e não perde logs se o destino cair. O New Relic também tem o agente Python
+(`newrelic-admin run-program`), que captura o `logging` do Python sozinho (*logs in context*).
+
+**2. Sink dentro da aplicação.** Um sink é um `logging.Handler` registrado com `register_sink`, num
+módulo importado na subida (ex.: o `apps.py` de um app). Exemplo para o Kafka (com `confluent-kafka`):
+
+```python
+import logging, os
+from confluent_kafka import Producer
+from core.observability import register_sink
+
+class KafkaLogHandler(logging.Handler):
+    def __init__(self, topic):
+        super().__init__()
+        self.topic = topic
+        self.producer = Producer({'bootstrap.servers': os.environ['KAFKA_BOOTSTRAP_SERVERS']})
+
+    def emit(self, record):
+        self.producer.produce(self.topic, self.format(record).encode())  # format = JSON do centralizador
+        self.producer.poll(0)
+
+    def flush(self):
+        self.producer.flush(5)
+
+@register_sink('kafka')
+def kafka_sink():
+    return KafkaLogHandler(os.getenv('LOG_KAFKA_TOPIC', 'emporio-logs'))
 ```
-INFO {"event": "turn_started", "category": "LIFECYCLE", "turn_id": "e64d99251fa8", "thread_id": "web-…"}
-INFO {"event": "guardrails_evaluated", "category": "DECISION", "turn_id": "e64d99251fa8", "origem": "llm", …}
-INFO {"event": "llm_call", "category": "LLM_CALL", "turn_id": "e64d99251fa8", "caller": "agent.respond", …}
-INFO {"event": "turn_finished", "category": "LIFECYCLE", "turn_id": "e64d99251fa8", "success": true,
-      "duration_ms": 21450, "llm_calls": 4, "tokens": {…}, "cost_usd": "0"}
-```
 
-- `LOG_LEVEL` no `.env` controla o nível (padrão INFO; WARNING mostra só degradações e falhas).
-- Nos testes só aparecem erros. O CLI `chat` esconde os eventos INFO, a menos que receba `--logs`.
-- O rastro da UI (`trace` no estado do grafo) é separado: ele é por conversa e vai para o inspetor;
-  os eventos são por processo e vão para o log.
+Para o New Relic, o mesmo padrão com um handler que envia lotes para a Log API
+(`https://log-api.newrelic.com/log/v1`, cabeçalho `Api-Key`). Depois, basta
+`LOG_SINKS=console,kafka,newrelic`. Os sinks rodam na thread da fila, então um envio lento não
+trava a requisição.
 
 ## Testes automatizados
 
@@ -39,7 +143,7 @@ docker compose exec web python manage.py test           # Postgres (serviço db 
 python manage.py test                                   # fora do Docker: SQLite (sem DATABASE_URL)
 ```
 
-183 testes, todos sem rede: o LLM é substituído por clientes falsos com respostas roteirizadas.
+190 testes, todos sem rede: o LLM é substituído por clientes falsos com respostas roteirizadas.
 
 | Pacote | Cobre |
 |---|---|
