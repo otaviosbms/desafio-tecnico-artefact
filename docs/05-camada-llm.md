@@ -20,13 +20,17 @@ O módulo tem duas camadas: o `LLMClient` (transporte: `chat` e `stream`) e o `L
 
 ## Modelo em uso
 
-**OpenRouter** com `nvidia/nemotron-3-ultra-550b-a55b:free`: gratuito e com suporte a function
-calling. Escolheu as ferramentas certas, com argumentos corretos, nos testes reais.
+**OpenAI** com `gpt-6-luna`, desde as avaliações de 02/11/2026 (resultados no capítulo 9):
 
-  `LLM_TIMEOUT` local foi elevado para 180 s (o padrão é 60 s).
-  timeout foi elevado para 180 s.
-- **Cota:** o plano gratuito limita as requisições por dia (erro 429); ver o capítulo 10.
-- Para uma demo, vale comparar com um modelo menor ou pago; a troca é só no `.env`.
+- **Latência:** de 1 a 4 s por chamada; um turno completo (guardrails, roteador e agente) leva
+  poucos segundos.
+- **Ferramentas:** no Chat Completions, o `gpt-6-luna` só aceita function calling sem raciocínio
+  (`LLM_REASONING_EFFORT=none`); sem isso, a API devolve 400 em toda chamada com ferramentas.
+- **Custo:** o modelo ainda não está na tabela de `llm/pricing.py`, então o custo aparece como 0
+  (com um aviso no log).
+
+Antes, o projeto usou o OpenRouter com `nvidia/nemotron-3-ultra-550b-a55b:free`: gratuito, mas com
+latência de até minutos por chamada e cota diária (erro 429). Os dois funcionam só trocando o `.env`.
 
 ## Configuração
 
@@ -37,6 +41,7 @@ calling. Escolheu as ferramentas certas, com argumentos corretos, nos testes rea
 | `LLM_BASE_URL` | Sobrescreve a URL do preset (obrigatório para `custom`) |
 | `LLM_API_KEY` | Sobrescreve a chave; sem ela, usa a variável do provedor (`OPENAI_API_KEY`, `GROQ_API_KEY`, ...) |
 | `LLM_TEMPERATURE` | Opcional; se ausente, não é enviada (alguns modelos de raciocínio a rejeitam) |
+| `LLM_REASONING_EFFORT` | Opcional (`none`, `low`, `medium`, `high`), para modelos de raciocínio; se ausente, não é enviado |
 | `LLM_TIMEOUT` / `LLM_MAX_RETRIES` | Padrão: 60 s e 2 tentativas |
 | `LLM_MODEL_AGENT` / `LLM_MODEL_ROUTER` / `LLM_MODEL_GUARDRAILS` | Modelo por papel (mesmo provedor e chave); vazio = `LLM_MODEL` |
 | `LLM_STRUCTURED_OUTPUT` | `auto` (padrão), `json_schema`, `json_object` ou `prompt` (ver abaixo) |

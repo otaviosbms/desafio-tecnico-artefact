@@ -122,6 +122,14 @@ class LLMClientTests(TestCase):
         config = LLMConfig(model='m', api_key='x', temperature=0.1)
         LLMClient(config, client=fake).chat([], max_tokens=50)
         self.assertEqual((fake.calls[0]['temperature'], fake.calls[0]['max_tokens']), (0.1, 50))
+        self.assertNotIn('reasoning_effort', fake.calls[0])
+
+    def test_reasoning_effort(self):
+        fake = FakeOpenAI(_completion({'content': 'ok'}))
+        LLMClient(LLMConfig(model='m', api_key='x', reasoning_effort='none'), client=fake).chat([])
+        self.assertEqual(fake.calls[0]['reasoning_effort'], 'none')
+        with mock.patch.dict(os.environ, {'LLM_MODEL': 'm', 'LLM_API_KEY': 'k', 'LLM_REASONING_EFFORT': 'low'}):
+            self.assertEqual(LLMConfig.from_env().reasoning_effort, 'low')
 
     def test_erro_do_provedor_vira_llm_error(self):
         fake = FakeOpenAI(openai.APIError('falhou', request=None, body=None))

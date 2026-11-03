@@ -40,6 +40,7 @@ class LLMConfig:
     base_url: str | None = None
     api_key: str | None = None
     temperature: float | None = None  # None = não envia (alguns modelos não aceitam)
+    reasoning_effort: str | None = None  # None = não envia (só modelos de raciocínio aceitam)
     timeout: float = 60.0
     max_retries: int = 2
 
@@ -52,6 +53,7 @@ class LLMConfig:
         LLM_BASE_URL     sobrescreve a URL do preset (obrigatório para 'custom')
         LLM_API_KEY      sobrescreve a chave lida da variável do provedor
         LLM_TEMPERATURE  opcional
+        LLM_REASONING_EFFORT  opcional (none, low, medium, high), para modelos de raciocínio
         LLM_TIMEOUT      segundos (padrão 60)
         LLM_MAX_RETRIES  padrão 2
         """
@@ -88,6 +90,7 @@ class LLMConfig:
             base_url=base_url,
             api_key=api_key,
             temperature=float(temperature) if temperature is not None else None,
+            reasoning_effort=env('REASONING_EFFORT'),
             timeout=float(env('TIMEOUT', 60)),
             max_retries=int(env('MAX_RETRIES', 2)),
         )

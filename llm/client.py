@@ -100,6 +100,8 @@ class LLMClient:
         params: dict[str, Any] = {'model': self.config.model, 'messages': messages}
         if self.config.temperature is not None:
             params['temperature'] = self.config.temperature
+        if self.config.reasoning_effort:
+            params['reasoning_effort'] = self.config.reasoning_effort
         params.update({k: v for k, v in kwargs.items() if v is not None})
         return params
 
