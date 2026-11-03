@@ -1,12 +1,18 @@
+# Sobe tudo: banco (Postgres), aplicação (Django) e pgAdmin.
+#   docker compose up -d --build
+#   App:     http://localhost:8000
+#   pgAdmin: http://localhost:5050 (servidor "Empório da Música" já cadastrado; senha do banco: emporio)
+# Variáveis opcionais (no .env): POSTGRES_PASSWORD, POSTGRES_PORT, WEB_PORT, PGADMIN_PORT.
+
 services:
   db:
     image: postgres:17
     environment:
       POSTGRES_DB: emporio
       POSTGRES_USER: emporio
-      POSTGRES_PASSWORD: emporio
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-emporio}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -14,5 +20,36 @@ services:
       interval: 5s
       retries: 10
 
+  web:
+    build: .
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Sobrescreve o DATABASE_URL do .env: dentro do compose, o banco é o serviço "db".
+      DATABASE_URL: postgres://emporio:${POSTGRES_PASSWORD:-emporio}@db:5432/emporio
+    ports:
+      - "${WEB_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  pgadmin:
+    image: dpage/pgadmin4:8.14
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@emporio.com
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-emporio}
+      # Modo desktop: abre direto, sem tela de login (uso local).
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    volumes:
+      - pgadmin:/var/lib/pgadmin
+      - ./docker/pgadmin/servers.json:/pgadmin4/servers.json:ro
+    depends_on:
+      - db
+
 volumes:
   pgdata:
+  pgadmin:
