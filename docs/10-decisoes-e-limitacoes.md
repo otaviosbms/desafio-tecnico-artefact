@@ -56,7 +56,8 @@ Cada decisão traz o motivo e as alternativas descartadas. Os detalhes estão no
 - **Frete para outras cidades:** não é calculado, por falta de tabela de CEP, peso e medidas.
 - **Busca:** a ordenação é feita em Python sobre os candidatos (adequado para 65 produtos). Um
   catálogo grande precisaria de índice GIN trigram e ordenação no SQL.
-- **Concorrência:** a UI usa o servidor de desenvolvimento do Django, com requisições síncronas.
+- **Concorrência:** a UI usa o servidor de desenvolvimento do Django (também no Docker), com
+  requisições síncronas.
 - **Detector de dados de terceiros:** pega "pedido da Gibson" (marca com inicial maiúscula); o
   efeito é só uma orientação extra ao agente.
 

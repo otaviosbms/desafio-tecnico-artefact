@@ -7,7 +7,7 @@ O agente responde sobre catálogo, preços, promoções, formas de pagamento, pe
 horário e endereço. Consulta os dados da loja e o manual de políticas por ferramentas, verifica a
 identidade antes de mostrar um pedido e recusa com educação o que está fora do escopo.
 
-**Stack:** Python 3.14 · Django 6 · LangGraph · SDK da OpenAI (qualquer provedor compatível) · PostgreSQL (ou SQLite)
+**Stack:** Python 3.14 · Django 6 · LangGraph · SDK da OpenAI (qualquer provedor compatível) · PostgreSQL · Docker Compose (com pgAdmin)
 
 ```
 mensagem ─► guardrails ─► roteador de intenção ─► agente ⇄ ferramentas ─► finalize ─► resposta
@@ -18,18 +18,15 @@ mensagem ─► guardrails ─► roteador de intenção ─► agente ⇄ ferra
 
 ---
 
-## Como rodar
+## Como rodar (Docker)
 
-### 1. Ambiente
+Pré-requisito: Docker com Compose v2.24 ou mais novo. Python e Postgres rodam nos containers.
+
+### 1. Configurar o LLM
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
 cp .env.example .env
 ```
-
-### 2. LLM
 
 No `.env`, escolha o provedor e o modelo. Qualquer endpoint compatível com a API de Chat
 Completions da OpenAI serve, desde que o modelo suporte function calling:
@@ -40,47 +37,51 @@ LLM_MODEL=gpt-4.1-mini
 OPENAI_API_KEY=sk-...        # ou a variável do provedor escolhido, ou LLM_API_KEY
 ```
 
-Para rodar sem chave paga: `LLM_PROVIDER=ollama` com um modelo local que suporte ferramentas, ou
-`LLM_PROVIDER=openrouter` com um modelo `:free`. Modelos de raciocínio podem exigir
-`LLM_REASONING_EFFORT=none` para usar ferramentas. Todas as opções estão no
-[capítulo 5](docs/05-camada-llm.md).
+Modelos de raciocínio podem exigir `LLM_REASONING_EFFORT=none` para usar ferramentas. Todas as
+opções estão no [capítulo 5](docs/05-camada-llm.md).
 
-### 3. Banco de dados
-
-**Opção A, sem configuração (SQLite):** apague a linha `DATABASE_URL` do `.env`. A busca usa um
-fallback em Python e o histórico das conversas fica em memória (some ao reiniciar).
-
-**Opção B, PostgreSQL (recomendado):** busca por trigramas e histórico persistente.
+### 2. Subir
 
 ```bash
-docker compose up -d db      # ou um Postgres próprio, ajustando DATABASE_URL
+docker compose up -d --build
 ```
 
-### 4. Dados e execução
+| Serviço | Endereço | O que é |
+|---|---|---|
+| `web` | http://localhost:8000 | A aplicação (ambiente de testes do agente). Na subida, aplica as migrations e carrega os CSVs de `data/` |
+| `db` | `localhost:5432` | PostgreSQL 17 (usuário, senha e banco: `emporio`) |
+| `pgadmin` | http://localhost:5050 | pgAdmin, já com o servidor "Empório da Música" cadastrado; na primeira conexão, a senha é `emporio` |
+
+Se alguma porta já estiver em uso, mude no `.env` (`WEB_PORT`, `POSTGRES_PORT`, `PGADMIN_PORT`).
+
+### 3. Usar
 
 ```bash
-python manage.py migrate
-python manage.py load_data   # importa data/*.csv (pode rodar de novo sem duplicar)
-python manage.py runserver   # ambiente de testes em http://localhost:8000
+docker compose exec web python manage.py chat --show-tools   # conversa pelo terminal
+docker compose logs -f web                                   # eventos estruturados de cada turno
+docker compose down                                          # para (os dados ficam nos volumes)
 ```
 
-Ou pelo terminal:
-
-```bash
-python manage.py chat --show-tools
-```
-
-> No Windows, se o console reclamar de emoji (`UnicodeEncodeError`), defina `PYTHONIOENCODING=utf-8`.
+Depois de mudar o código, rode `docker compose up -d --build` de novo.
 
 ### Testes e avaliações
 
 ```bash
-python manage.py test                   # 172 testes, sem rede (LLM falso)
-python manage.py eval_router --report   # avaliações com o LLM real (gravam em evals/reports/)
-python manage.py eval_guardrails --report
-python manage.py eval_agent --report
-python manage.py generate_examples      # regenera examples/ com o LLM configurado
+docker compose exec web python manage.py test                   # 177 testes, sem rede (LLM falso)
+docker compose exec web python manage.py eval_router --report   # avaliações com o LLM real
+docker compose exec web python manage.py eval_guardrails --report
+docker compose exec web python manage.py eval_agent --report
+docker compose exec web python manage.py generate_examples      # regenera examples/
 ```
+
+Os relatórios e exemplos são gravados dentro do container; para trazê-los para o repositório, use
+`docker compose cp web:/app/evals/reports ./evals/`.
+
+### Sem Docker (opcional)
+
+Com Python 3.14: `python -m venv .venv`, `pip install -r requirements.txt`, ajuste `DATABASE_URL`
+no `.env` (ou apague a linha para usar SQLite) e rode `python manage.py migrate`, `load_data` e
+`runserver`. No Windows, se o console reclamar de emoji, defina `PYTHONIOENCODING=utf-8`.
 
 ---
 

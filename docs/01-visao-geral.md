@@ -58,7 +58,8 @@ mensagem ─► guardrails ─► roteador de intenção ─► agente ⇄ ferra
 - **Ambiente de testes:** uma UI web que mostra, por mensagem, o rastro das chamadas, as decisões
   dos estágios, o system prompt e os schemas, com data/hora simulada e troca de modelo.
 
-Stack: Python 3.14, Django 6, LangGraph, SDK da OpenAI, PostgreSQL (com fallback para SQLite).
+Stack: Python 3.14, Django 6, LangGraph, SDK da OpenAI, PostgreSQL (com fallback para SQLite). Tudo
+roda com `docker compose up`: aplicação, banco e pgAdmin.
 
 ## Estrutura de pastas
 
@@ -75,6 +76,8 @@ conversation/    orquestrador, grafo, prompt do agente, UI, API e comandos (caps
 tests/           testes transversais: snapshots e regra de camadas (cap. 9)
 evals/           datasets de avaliação com o LLM real (cap. 9)
 data/            CSVs e manual de políticas fornecidos pelo desafio
+docker/          configuração do pgAdmin (servidor já cadastrado)
+Dockerfile, docker-compose.yml   imagem da aplicação; serviços web, db e pgadmin
 docs/            esta documentação
 examples/        conversas de exemplo (transcrições reais)
 ```
