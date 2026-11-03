@@ -37,8 +37,11 @@ LLM_MODEL=gpt-4.1-mini
 OPENAI_API_KEY=sk-...        # ou a variável do provedor escolhido, ou LLM_API_KEY
 ```
 
-Modelos de raciocínio podem exigir `LLM_REASONING_EFFORT=none` para usar ferramentas. Todas as
-opções estão no [capítulo 5](docs/05-camada-llm.md).
+Cada camada (conversa, roteador, guardrails) pode usar outro modelo, e até outro provedor:
+`LLM_MODEL_AGENT`, `LLM_MODEL_ROUTER` e `LLM_MODEL_GUARDRAILS` aceitam `modelo` ou
+`provedor:modelo` (ex.: `groq:llama-3.3-70b-versatile`); vazio usa o `LLM_MODEL`. Modelos de
+raciocínio podem exigir `LLM_REASONING_EFFORT=none` para usar ferramentas. Todas as opções estão no
+[capítulo 5](docs/05-camada-llm.md).
 
 ### 2. Subir
 
@@ -67,7 +70,7 @@ Depois de mudar o código, rode `docker compose up -d --build` de novo.
 ### Testes e avaliações
 
 ```bash
-docker compose exec web python manage.py test                   # 177 testes, sem rede (LLM falso)
+docker compose exec web python manage.py test                   # 183 testes, sem rede (LLM falso)
 docker compose exec web python manage.py eval_router --report   # avaliações com o LLM real
 docker compose exec web python manage.py eval_guardrails --report
 docker compose exec web python manage.py eval_agent --report
@@ -79,9 +82,9 @@ Os relatórios e exemplos são gravados dentro do container; para trazê-los par
 
 ### Sem Docker (opcional)
 
-Com Python 3.14: `python -m venv .venv`, `pip install -r requirements.txt`, ajuste `DATABASE_URL`
-no `.env` (ou apague a linha para usar SQLite) e rode `python manage.py migrate`, `load_data` e
-`runserver`. No Windows, se o console reclamar de emoji, defina `PYTHONIOENCODING=utf-8`.
+Com Python 3.14: `python -m venv .venv`, `pip install -r requirements.txt` e rode
+`python manage.py migrate`, `load_data` e `runserver`. Sem `DATABASE_URL`, o banco é SQLite; para um
+Postgres próprio, defina `DATABASE_URL=postgres://usuario:senha@host:porta/banco` no `.env`. No Windows, se o console reclamar de emoji, defina `PYTHONIOENCODING=utf-8`.
 
 ---
 
@@ -94,7 +97,7 @@ no `.env` (ou apague a linha para usar SQLite) e rode `python manage.py migrate`
 | **Agente** | Grafo LangGraph: o LLM escolhe as ferramentas e redige; no máximo 4 rodadas por mensagem; falhas viram uma resposta de contingência | [Cap. 3](docs/03-pipeline-do-turno.md) |
 | **Ferramentas** | 6 ferramentas tipadas com Pydantic: busca, detalhes, promoções, pagamento, pedido, políticas. Preços, PIX, parcelamento e prazos são calculados em Python | [Cap. 6](docs/06-tools.md) |
 | **Políticas** | O manual em PDF virou 9 seções Markdown revisadas, consultadas por tópico | [Cap. 6](docs/06-tools.md) |
-| **Camada de LLM** | Um módulo para qualquer provedor compatível com a OpenAI, modelo por papel, custo estimado, saída estruturada em 3 níveis | [Cap. 5](docs/05-camada-llm.md) |
+| **Camada de LLM** | Um módulo para qualquer provedor compatível com a OpenAI, modelo e provedor por camada, custo estimado, saída estruturada em 3 níveis | [Cap. 5](docs/05-camada-llm.md) |
 | **Ambiente de testes** | UI com data/hora simulada, troca de modelo e de modo dos estágios por mensagem, e um inspetor com rastro, decisões, prompt e schemas | [Cap. 8](docs/08-ambiente-de-testes.md) |
 | **Qualidade** | Eventos estruturados por turno, 172 testes, snapshots dos prompts, teste da regra de camadas e 3 avaliações com o LLM real | [Cap. 9](docs/09-observabilidade-e-testes.md) |
 

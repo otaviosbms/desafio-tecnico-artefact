@@ -35,11 +35,11 @@ INFO {"event": "turn_finished", "category": "LIFECYCLE", "turn_id": "e64d99251fa
 ## Testes automatizados
 
 ```bash
-python manage.py test                                   # Postgres (DATABASE_URL do .env)
-DATABASE_URL=sqlite:///test.sqlite3 python manage.py test   # os mesmos testes em SQLite
+docker compose exec web python manage.py test           # Postgres (serviço db do compose)
+python manage.py test                                   # fora do Docker: SQLite (sem DATABASE_URL)
 ```
 
-172 testes, todos sem rede: o LLM é substituído por clientes falsos com respostas roteirizadas.
+183 testes, todos sem rede: o LLM é substituído por clientes falsos com respostas roteirizadas.
 
 | Pacote | Cobre |
 |---|---|

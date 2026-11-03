@@ -38,7 +38,7 @@ services:
     image: dpage/pgadmin4:8.14
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@emporio.com
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-emporio}
+      PGADMIN_DEFAULT_PASSWORD: emporio  # exigida pela imagem; sem uso no modo desktop
       # Modo desktop: abre direto, sem tela de login (uso local).
       PGADMIN_CONFIG_SERVER_MODE: "False"
       PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
