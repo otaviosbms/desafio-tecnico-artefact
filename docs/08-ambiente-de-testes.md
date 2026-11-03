@@ -5,8 +5,9 @@ Template Django com JavaScript puro (`conversation/templates/`, `conversation/st
 framework nem CDN. Abre em `http://localhost:8000` com `python manage.py runserver`.
 
 Visual em vermelho e branco, com tema claro e escuro (segue o sistema; o botão da barra superior
-alterna). A barra superior mostra o modelo, o relógio em uso e se a loja está aberta, e tem as
-ações de nova conversa, exportar em Markdown e tema.
+alterna). A barra superior mostra o modelo do agente (no título, o de cada camada), o relógio em uso
+e se a loja está aberta, e tem as ações de nova conversa, exportar em Markdown e tema. Os modelos
+são definidos só no `.env` (capítulo 5).
 
 ## Três painéis
 
@@ -14,13 +15,12 @@ ações de nova conversa, exportar em Markdown e tema.
 
 Só o essencial, em cartões; tudo vale por mensagem e é validado no backend:
 
-- **Modelo:** do agente (vazio = o do `.env`; provedor e chave vêm sempre do `.env`).
 - **Data e hora:** simulada, com presets. Afeta o horário da loja, os prazos de pedidos e o system prompt.
 - **Estágios:** modo dos guardrails e do roteador num controle segmentado (padrão do `.env`, `off`,
   `shadow`, `enforce`).
 - **Cenários de teste:** perguntas prontas por assunto (um grupo aberto por vez) e, só com
   `DEBUG=True`, os pedidos fictícios do desafio, que inserem número e e-mail na mensagem.
-- **Avançado** (recolhido): temperatura, modelo dos guardrails e do roteador e o id da conversa.
+- **Conversa** (recolhido): o id da conversa, com botão de copiar.
 
 Sem mensagens, a conversa mostra quatro sugestões que enviam direto.
 

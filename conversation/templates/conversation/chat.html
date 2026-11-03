@@ -19,7 +19,7 @@
         </div>
       </div>
       <div class="status-pills" aria-label="Configuração ativa">
-        <span class="pill" id="pill-model" title="Modelo em uso"></span>
+        <span class="pill" id="pill-model" title="Modelos em uso (do .env)"></span>
         <span class="pill" id="pill-clock" title="Data/hora usada pelo agente"></span>
         <span class="pill" id="pill-store" title="Situação da loja na data/hora usada"></span>
       </div>
@@ -46,13 +46,6 @@
         <h2>Configuração</h2>
       </div>
       <div class="panel-body">
-
-        <section class="card">
-          <h3 class="card-title">Modelo</h3>
-          <input type="text" id="model" list="model-options" autocomplete="off" spellcheck="false" aria-label="Modelo">
-          <datalist id="model-options"></datalist>
-          <p class="hint">Vazio usa o modelo do <code>.env</code>.</p>
-        </section>
 
         <section class="card">
           <h3 class="card-title">Data e hora</h3>
@@ -84,17 +77,8 @@
         </section>
 
         <details class="card advanced">
-          <summary class="card-title">Avançado</summary>
-          <div class="row between">
-            <label class="field-label" for="temperature">Temperatura: <output id="temperature-value"></output></label>
-            <label class="check"><input type="checkbox" id="temperature-default"> padrão</label>
-          </div>
-          <input type="range" id="temperature" min="0" max="2" step="0.1">
-          <label class="field-label" for="stage-guardrails-model">Modelo dos guardrails</label>
-          <input type="text" id="stage-guardrails-model" list="model-options" autocomplete="off" spellcheck="false">
-          <label class="field-label" for="stage-roteador-model">Modelo do roteador</label>
-          <input type="text" id="stage-roteador-model" list="model-options" autocomplete="off" spellcheck="false">
-          <label class="field-label">Conversa</label>
+          <summary class="card-title">Conversa</summary>
+          <span class="field-label">Id (thread)</span>
           <div class="row">
             <code class="thread-id" id="thread-id"></code>
             <button type="button" class="btn small" id="copy-thread" title="Copiar id">Copiar</button>

@@ -10,14 +10,10 @@
 
   const STORAGE_KEY = 'emporio-testes-config';
   const DEFAULTS = {
-    modelo: '',
-    temperatura: null, // null = padrão do .env
     agora: '',
     // Estágios: '' = padrão do .env
     guardrailsModo: '',
-    guardrailsModelo: '',
     roteadorModo: '',
-    roteadorModelo: '',
     theme: 'auto',
   };
   const settings = Object.assign({}, DEFAULTS, loadSettings());
@@ -205,13 +201,9 @@
 
   function currentConfig() {
     return {
-      modelo: settings.modelo || null,
-      temperatura: settings.temperatura,
       agora: settings.agora || null,
       modo_guardrails: settings.guardrailsModo || null,
       modo_roteador: settings.roteadorModo || null,
-      modelo_guardrails: settings.guardrailsModelo || null,
-      modelo_roteador: settings.roteadorModelo || null,
     };
   }
 
@@ -568,17 +560,19 @@
 
   // ---------- Painel de configuração ----------
 
+  // Os modelos vêm só do .env (LLM_MODEL e LLM_MODEL_*): a pílula mostra o do agente e, no título, o de
+  // cada camada.
   function renderModelPill() {
-    const model = settings.modelo || (page.llm && page.llm.modelo) || '—';
-    const temp = settings.temperatura == null ? '' : ' · t=' + settings.temperatura;
+    const llm = page.llm || {};
+    const model = llm.erro ? 'LLM não configurado' : (llm.modelo || '—');
     const pill = $('pill-model');
-    pill.textContent = model.split('/').pop() + temp;
+    pill.textContent = model.split('/').pop();
     const stages = page.estagios || {};
-    const mode = (key, stage) => settings[key] || ((stages[stage] || {}).modo || '?');
-    pill.title = 'Modelo: ' + model + (settings.modelo ? ' (sobrescrito na UI)' : ' (do .env)') +
-      '\nGuardrails: ' + mode('guardrailsModo', 'guardrails') + ' · Roteador: ' + mode('roteadorModo', 'roteador');
-    pill.classList.toggle('simulated', !!settings.modelo || settings.temperatura != null ||
-      !!(settings.guardrailsModo || settings.roteadorModo || settings.guardrailsModelo || settings.roteadorModelo));
+    const layer = (stage, key) => ((stages[stage] || {}).modelo || model) + ' · ' +
+      (settings[key] || (stages[stage] || {}).modo || '?');
+    pill.title = llm.erro || ('Conversa: ' + model + '\nGuardrails: ' + layer('guardrails', 'guardrailsModo') +
+      '\nRoteador: ' + layer('roteador', 'roteadorModo') + '\n(modelos definidos no .env)');
+    pill.classList.toggle('simulated', !!(settings.guardrailsModo || settings.roteadorModo));
   }
 
   function renderClockPill() {
@@ -604,42 +598,10 @@
       setTimeout(() => { $('copy-thread').textContent = 'Copiar'; }, 1500);
     });
 
-    // Modelo
-    const llm = page.llm || {};
-    $('model').placeholder = llm.erro ? 'LLM não configurado' : (llm.modelo || '');
-    $('model').value = settings.modelo;
-    if (llm.modelo) $('model-options').appendChild(el('option', { value: llm.modelo }));
-    $('model').addEventListener('change', () => {
-      settings.modelo = $('model').value.trim();
-      saveSettings();
-      renderModelPill();
-    });
-
-    const temp = $('temperature');
-    const tempDefault = $('temperature-default');
-    function syncTemperature() {
-      const useDefault = settings.temperatura == null;
-      tempDefault.checked = useDefault;
-      temp.disabled = useDefault;
-      temp.value = useDefault ? (llm.temperatura ?? 0.7) : settings.temperatura;
-      $('temperature-value').textContent = useDefault
-        ? (llm.temperatura == null ? 'padrão do provedor' : llm.temperatura + ' (.env)')
-        : settings.temperatura;
-    }
-    temp.addEventListener('input', () => { settings.temperatura = Number(temp.value); syncTemperature(); });
-    temp.addEventListener('change', () => { saveSettings(); renderModelPill(); });
-    tempDefault.addEventListener('change', () => {
-      settings.temperatura = tempDefault.checked ? null : Number(temp.value);
-      saveSettings();
-      syncTemperature();
-      renderModelPill();
-    });
-    syncTemperature();
-
     // Estágios: controle segmentado (padrão do .env, off, shadow, enforce)
     const stages = page.estagios || { modos: [], guardrails: {}, roteador: {} };
-    [['guardrails', 'guardrailsModo', 'guardrailsModelo'], ['roteador', 'roteadorModo', 'roteadorModelo']]
-      .forEach(([stage, modeKey, modelKey]) => {
+    [['guardrails', 'guardrailsModo'], ['roteador', 'roteadorModo']]
+      .forEach(([stage, modeKey]) => {
         const defaults = stages[stage] || {};
         const group = $('stage-' + stage + '-mode');
         const options = [['', 'padrão', 'Padrão do .env: ' + (defaults.modo || '?')]]
@@ -652,14 +614,6 @@
           onclick: () => { settings[modeKey] = value; saveSettings(); sync(); renderModelPill(); },
         })));
         sync();
-        const model = $('stage-' + stage + '-model');
-        model.placeholder = defaults.modelo || 'modelo';
-        model.value = settings[modelKey];
-        model.addEventListener('change', () => {
-          settings[modelKey] = model.value.trim();
-          saveSettings();
-          renderModelPill();
-        });
       });
 
     // Data/hora simulada
@@ -743,7 +697,7 @@
   // ---------- Exportação ----------
 
   function exportMarkdown() {
-    const model = settings.modelo || (page.llm && page.llm.modelo) || '';
+    const model = (page.llm && page.llm.modelo) || '';
     const lines = [
       '# Conversa de teste — Empório da Música', '',
       '- Thread: `' + threadId + '`',

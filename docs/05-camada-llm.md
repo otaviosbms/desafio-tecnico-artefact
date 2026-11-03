@@ -94,8 +94,9 @@ GROQ_API_KEY=gsk-...
   herda (um modelo pode recusar o parâmetro); use `LLM_REASONING_EFFORT_<CAMADA>` se precisar.
 - **Falha cedo:** os clientes de todas as camadas são montados quando o serviço sobe; um provedor
   sem chave gera `LLMConfigError` na subida, e não no meio de uma conversa.
-- **UI de testes:** os campos de modelo (agente, roteador e guardrails) aceitam o mesmo formato, por
-  mensagem; um provedor sem chave devolve um erro 400 com a variável que falta.
+- **Só no `.env`:** a UI de testes não troca modelos; ela mostra, na barra superior, o modelo de
+  cada camada. A API (`POST /api/mensagem/`) ainda aceita `modelo`, `modelo_roteador` e
+  `modelo_guardrails` no mesmo formato, e um provedor sem chave devolve 400 com a variável que falta.
 
 Tudo isso fica em `llm/` (`roles.py`, `LLMConfig.with_model`, `LLMService.with_overrides`): o resto
 da aplicação só pede um papel ao `LLMService` e não monta clientes nem configurações.
@@ -135,8 +136,7 @@ chamada passa pelo `LLMService`, que recebe sempre **quem chamou** (`caller`) e 
 (`role`), e acrescenta:
 
 - **modelo por papel** (`llm/roles.py`): `agent`, `router` e `guardrails`, cada um com o seu
-  modelo e provedor (ver "Modelo por camada"). A UI de testes pode trocar o modelo de cada papel por
-  mensagem;
+  modelo e provedor (ver "Modelo por camada");
 - **logs e uso:** cada chamada gera um `LLM_CALL` (caller, papel, modelo, duração, tokens, custo,
   sucesso) e soma tokens e custo no `TurnContext` do turno;
 - **custo estimado** (`llm/pricing.py`): tabela em US$ por 1M de tokens. Modelos `:free` custam 0;
