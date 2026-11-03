@@ -13,6 +13,11 @@
     modelo: '',
     temperatura: null, // null = padrão do .env
     agora: '',
+    // Estágios: '' = padrão do .env
+    guardrailsModo: '',
+    guardrailsModelo: '',
+    roteadorModo: '',
+    roteadorModelo: '',
     showTools: true,
     showMetrics: true,
     enterSends: true,
@@ -31,19 +36,24 @@
   // ---------- Estado da conversa ----------
 
   let threadId = page.thread_id;
-  let turns = buildTurns(page.historico, page.rastro);
+  let turns = buildTurns(page.historico, page.rastro, page.decisoes);
   let selectedTurn = null;
   let busy = false;
 
-  function buildTurns(history, trace) {
+  function buildTurns(history, trace, decisions) {
     const result = [];
     history.forEach((m) => {
-      if (m.role === 'user') result.push({ turno: result.length + 1, cliente: m.content, assistente: '', rastro: [] });
-      else if (result.length) result[result.length - 1].assistente = m.content;
+      if (m.role === 'user') {
+        result.push({ turno: result.length + 1, cliente: m.content, assistente: '', rastro: [], decisoes: [] });
+      } else if (result.length) result[result.length - 1].assistente = m.content;
     });
     (trace || []).forEach((ev) => {
       const turn = result[ev.turno - 1];
       if (turn) turn.rastro.push(ev);
+    });
+    (decisions || []).forEach((d) => {
+      const turn = result[d.turno - 1];
+      if (turn) turn.decisoes.push(d);
     });
     result.forEach((t) => { t.duracao_ms = sumDurations(t.rastro); });
     return result;
@@ -57,6 +67,19 @@
     return ms < 1000 ? ms + ' ms' : nf.format(Math.round(ms / 100) / 10) + ' s';
   }
   function sumDurations(events) { return events.reduce((acc, e) => acc + (e.duracao_ms || 0), 0); }
+  function formatCost(usd) {
+    if (!usd) return 'custo US$ 0';
+    return 'custo US$ ' + (usd < 0.01 ? usd.toPrecision(2) : usd.toFixed(4));
+  }
+
+  function costOf(events) {
+    return events.reduce((acc, e) => acc + (Number(e.custo_usd) || 0), 0);
+  }
+  function formatUsd(usd) {
+    if (!usd) return 'US$ 0';
+    return 'US$ ' + (usd < 0.01 ? usd.toPrecision(2) : usd.toFixed(4));
+  }
+
   function tokensOf(events) {
     return events.reduce((acc, e) => acc + ((e.tokens && e.tokens.total_tokens) || 0), 0);
   }
@@ -175,6 +198,10 @@
       modelo: settings.modelo || null,
       temperatura: settings.temperatura,
       agora: settings.agora || null,
+      modo_guardrails: settings.guardrailsModo || null,
+      modo_roteador: settings.roteadorModo || null,
+      modelo_guardrails: settings.guardrailsModelo || null,
+      modelo_roteador: settings.roteadorModelo || null,
     };
   }
 
@@ -199,11 +226,13 @@
     autoResize();
     const stopTyping = showTyping();
 
-    const turn = { turno: turns.length + 1, cliente: text, assistente: '', rastro: [] };
+    const turn = { turno: turns.length + 1, cliente: text, assistente: '', rastro: [], decisoes: [] };
     try {
       const { ok, data } = await postJson(page.urls.mensagem, { texto: text, config: currentConfig() });
       if (ok) {
-        Object.assign(turn, { assistente: data.resposta, rastro: data.rastro || [], duracao_ms: data.duracao_ms });
+        Object.assign(turn, {
+          assistente: data.resposta, rastro: data.rastro || [], decisoes: data.decisoes || [], duracao_ms: data.duracao_ms,
+        });
         turns.push(turn);
       } else {
         turn.erro = data.erro || 'Não consegui responder agora.';
@@ -255,6 +284,7 @@
 
   function renderInspector() {
     renderStats();
+    renderDecisions();
     const container = $('trace');
     container.innerHTML = '';
     if (!turns.length) {
@@ -269,10 +299,13 @@
     const llm = events.filter((e) => e.tipo === 'llm');
     const answered = turns.filter((t) => t.rastro.length);
     const avg = answered.length ? sumDurations(events) / answered.length : null;
+    const perMessage = answered.length ? nf.format(Math.round(llm.length / answered.length * 10) / 10) : '—';
     const stats = [
       [turns.length, 'mensagens'],
       [llm.length, 'chamadas LLM'],
+      [perMessage, 'LLM/mensagem'],
       [nf.format(tokensOf(events)), 'tokens'],
+      [formatUsd(costOf(llm)), 'custo'],
       [seconds(avg == null ? null : Math.round(avg)), 'média/resposta'],
     ];
     $('stats').innerHTML = stats.map(([v, l]) => '<div class="stat"><b>' + escapeHtml(v) + '</b><span>' + l + '</span></div>').join('');
@@ -300,15 +333,27 @@
         el('span', { class: 'kind llm', text: 'Modelo' }),
         el('span', { class: 'time', text: seconds(ev.duracao_ms) }),
       ]));
-      const parts = [ev.modelo];
+      const parts = [ev.caller, ev.modelo].filter(Boolean);
       if (t.total_tokens) parts.push(nf.format(t.prompt_tokens || 0) + ' → ' + nf.format(t.completion_tokens || 0) + ' tokens');
+      if (ev.custo_usd != null) parts.push(formatCost(Number(ev.custo_usd)));
       if (ev.finish_reason) parts.push('fim: ' + ev.finish_reason);
-      if (!ev.com_ferramentas) parts.push('sem ferramentas (limite de rodadas)');
+      if (ev.caller === 'agent.respond' && !ev.com_ferramentas) parts.push('sem ferramentas');
+      if (ev.ferramentas_oferecidas) parts.push('ferramentas: ' + (ev.ferramentas_oferecidas.join(', ') || 'nenhuma'));
       row.appendChild(el('div', { class: 'detail', text: parts.join(' · ') }));
       if (ev.pediu_ferramentas && ev.pediu_ferramentas.length) {
         row.appendChild(el('div', { class: 'detail', text: 'Pediu: ' + ev.pediu_ferramentas.join(', ') }));
       }
       if (ev.erro) row.appendChild(el('div', { class: 'detail error', text: ev.erro }));
+    } else if (ev.tipo === 'decisao') {
+      row.appendChild(ev.estagio === 'guardrails' ? guardrailsRow(ev) : decisionRow(ev));
+      return row;
+    } else if (ev.tipo === 'bloqueio') {
+      row.appendChild(el('div', { class: 'event-title' }, [
+        el('span', { class: 'kind stage', text: 'Resposta de bloqueio' }),
+        el('span', { class: 'time', text: ev.motivo }),
+      ]));
+      row.appendChild(el('div', { class: 'detail', text: 'Sem chamar o agente: ' + ev.resposta }));
+      return row;
     } else {
       row.appendChild(el('div', { class: 'event-title' }, [
         el('span', { class: 'kind tool', text: ev.nome }),
@@ -322,6 +367,116 @@
     return row;
   }
 
+  // Decisão de um estágio do pipeline (por enquanto, o roteador de intenção).
+  function decisionRow(ev) {
+    const origins = { off: 'desligado', shortcut: 'atalho, sem LLM', llm: 'LLM', fallback: 'falhou: liberou tudo' };
+    const box = el('div');
+    box.appendChild(el('div', { class: 'event-title' }, [
+      el('span', { class: 'kind stage', text: 'Roteador · ' + ev.modo }),
+      el('span', { class: 'time', text: origins[ev.origem] || ev.origem }),
+    ]));
+    if (ev.intencoes && ev.intencoes.length) {
+      const confidence = ev.confianca == null ? '' : ' (confiança ' + Math.round(ev.confianca * 100) + '%)';
+      box.appendChild(el('div', { class: 'detail', text: 'Intenções: ' + ev.intencoes.join(', ') + confidence }));
+    }
+    const allowed = ev.ferramentas_liberadas;
+    box.appendChild(el('div', { class: 'detail', text: 'Ferramentas liberadas: ' +
+      (allowed == null ? 'todas' : (allowed.join(', ') || 'nenhuma')) }));
+    if (ev.modo === 'shadow' && ev.ferramentas_propostas) {
+      box.appendChild(el('div', { class: 'detail', text: 'Em enforce seriam: ' + (ev.ferramentas_propostas.join(', ') || 'nenhuma') }));
+    }
+    if (ev.justificativa) box.appendChild(el('div', { class: 'detail', text: ev.justificativa }));
+    return box;
+  }
+
+  // Decisão do guardrails: avaliação, efeito (que só vale em enforce) e orientação ao agente.
+  function guardrailsRow(ev) {
+    const origins = { off: 'desligado', detector: 'regra, sem LLM', llm: 'LLM', fallback: 'falhou: seguiu' };
+    const box = el('div');
+    box.appendChild(el('div', { class: 'event-title' }, [
+      el('span', { class: 'kind stage', text: 'Guardrails · ' + ev.modo }),
+      el('span', { class: 'time', text: (origins[ev.origem] || ev.origem) + (ev.regra ? ' · ' + ev.regra : '') }),
+    ]));
+    if (ev.modo !== 'off') {
+      const verdict = ev.permitido ? 'passa' : 'bloqueio ' + (ev.severidade === 'hard' ? 'duro' : 'leve');
+      const effect = ev.permitido || ev.aplicada ? '' : ' (não aplicado: modo ' + ev.modo + ')';
+      const row = el('div', { class: 'detail' + (ev.permitido ? '' : ' error'), text: 'Avaliação: ' + verdict +
+        ' · ' + ev.categoria + effect });
+      box.appendChild(row);
+    }
+    if (ev.requer_humano) box.appendChild(el('div', { class: 'detail', text: 'Pede atendimento humano' }));
+    if (ev.bloqueios_seguidos) box.appendChild(el('div', { class: 'detail', text: 'Bloqueios seguidos: ' + ev.bloqueios_seguidos }));
+    if (ev.orientacao) box.appendChild(el('div', { class: 'detail', text: 'Orientação: ' + ev.orientacao }));
+    if (ev.justificativa) box.appendChild(el('div', { class: 'detail', text: ev.justificativa }));
+    return box;
+  }
+
+  // ---------- Aba Decisões ----------
+
+  function renderDecisions() {
+    const container = $('decisions');
+    container.innerHTML = '';
+    const withDecisions = turns.filter((t) => t.decisoes && t.decisoes.length);
+    if (!withDecisions.length) {
+      container.appendChild(el('p', { class: 'hint', text: turns.length
+        ? 'As mensagens desta conversa são de antes dos estágios: não há decisões registradas.'
+        : 'As decisões aparecem aqui a cada mensagem.' }));
+      return;
+    }
+    withDecisions.forEach((turn) => container.appendChild(decisionCard(turn)));
+  }
+
+  function decisionCard(turn) {
+    const card = el('article', { class: 'decision-turn' + (selectedTurn === turn.turno ? ' selected' : ''),
+      id: 'decision-' + turn.turno });
+    card.appendChild(el('b', { text: '#' + turn.turno + ' · ' + turn.cliente }));
+    const by = (stage) => turn.decisoes.filter((d) => d.estagio === stage);
+    by('guardrails').forEach((d) => card.appendChild(decisionLine('Guardrails', d.modo, guardrailsSummary(d),
+      !d.permitido)));
+    by('router').forEach((d) => card.appendChild(decisionLine('Intenção', d.modo, routerSummary(d), d.origem === 'fallback')));
+    const final = by('final')[0];
+    if (final) {
+      const transfer = final.transferencia ? 'Sim (' + final.motivo + ')' : 'Não';
+      card.appendChild(decisionLine('Equipe', null, transfer + (final.bloqueada ? ' · resposta de bloqueio' : ''),
+        final.transferencia));
+      const usage = final.uso;
+      if (usage) {
+        card.appendChild(decisionLine('Uso', null, usage.llm_calls + (usage.llm_calls === 1 ? ' chamada' : ' chamadas') +
+          ' · ' + nf.format((usage.tokens || {}).total_tokens || 0) + ' tokens · ' + formatUsd(Number(usage.cost_usd)),
+          false));
+      }
+    }
+    card.addEventListener('click', () => selectTurn(turn.turno, false));
+    return card;
+  }
+
+  function decisionLine(label, mode, text, warn) {
+    const value = el('span');
+    if (mode) value.appendChild(el('span', { class: 'badge-mode', text: mode }));
+    value.appendChild(el('span', { class: warn ? 'warn' : '', text }));
+    return el('div', { class: 'decision-row' }, [el('span', { text: label }), value]);
+  }
+
+  function guardrailsSummary(d) {
+    if (d.modo === 'off') return 'desligado';
+    if (d.origem === 'fallback') return 'falhou: a mensagem seguiu';
+    const verdict = d.permitido ? 'passa' : 'bloqueio ' + (d.severidade === 'hard' ? 'duro' : 'leve') + ' · ' + d.categoria;
+    const source = d.origem === 'detector' ? ' (regra ' + d.regra + ')' : ' (LLM)';
+    const applied = !d.permitido && !d.aplicada ? ' · não aplicado' : '';
+    const guided = d.aplicada && !d.permitido && d.severidade === 'soft';
+    return verdict + source + applied + (guided ? ' · orientação ao agente' : '');
+  }
+
+  function routerSummary(d) {
+    if (d.modo === 'off') return 'desligado: todas as ferramentas';
+    if (d.origem === 'fallback') return 'falhou: todas as ferramentas';
+    const confidence = d.confianca == null ? '' : ' (' + Math.round(d.confianca * 100) + '%)';
+    const tools = d.ferramentas_liberadas == null
+      ? 'todas as ferramentas' + (d.modo === 'shadow' ? ' (enforce: ' + (d.ferramentas_propostas.join(', ') || 'nenhuma') + ')' : '')
+      : (d.ferramentas_liberadas.join(', ') || 'nenhuma ferramenta');
+    return (d.intencoes || []).join(', ') + confidence + ' → ' + tools;
+  }
+
   function jsonBlock(label, value, open) {
     const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
     return el('details', { open: open ? '' : null }, [
@@ -332,7 +487,9 @@
 
   function selectTurn(number, reveal) {
     selectedTurn = number;
-    document.querySelectorAll('.message.selected, .turn.selected').forEach((n) => n.classList.remove('selected'));
+    document.querySelectorAll('.message.selected, .turn.selected, .decision-turn.selected')
+      .forEach((n) => n.classList.remove('selected'));
+    $('decision-' + number)?.classList.add('selected');
     document.querySelector('.message.assistant[data-turn="' + number + '"]')?.classList.add('selected');
     const card = $('turn-' + number);
     if (!card) return;
@@ -406,8 +563,12 @@
     const temp = settings.temperatura == null ? '' : ' · t=' + settings.temperatura;
     const pill = $('pill-model');
     pill.textContent = model.split('/').pop() + temp;
-    pill.title = 'Modelo: ' + model + (settings.modelo ? ' (sobrescrito na UI)' : ' (do .env)');
-    pill.classList.toggle('simulated', !!settings.modelo || settings.temperatura != null);
+    const stages = page.estagios || {};
+    const mode = (key, stage) => settings[key] || ((stages[stage] || {}).modo || '?');
+    pill.title = 'Modelo: ' + model + (settings.modelo ? ' (sobrescrito na UI)' : ' (do .env)') +
+      '\nGuardrails: ' + mode('guardrailsModo', 'guardrails') + ' · Roteador: ' + mode('roteadorModo', 'roteador');
+    pill.classList.toggle('simulated', !!settings.modelo || settings.temperatura != null ||
+      !!(settings.guardrailsModo || settings.roteadorModo || settings.guardrailsModelo || settings.roteadorModelo));
   }
 
   function renderClockPill() {
@@ -467,6 +628,26 @@
     });
     syncTemperature();
 
+    // Estágios
+    const stages = page.estagios || { modos: [], guardrails: {}, roteador: {} };
+    [['guardrails', 'guardrailsModo', 'guardrailsModelo'], ['roteador', 'roteadorModo', 'roteadorModelo']]
+      .forEach(([stage, modeKey, modelKey]) => {
+        const defaults = stages[stage] || {};
+        const select = $('stage-' + stage + '-mode');
+        select.appendChild(el('option', { value: '', text: 'padrão (' + (defaults.modo || '?') + ')' }));
+        stages.modos.forEach((m) => select.appendChild(el('option', { value: m, text: m })));
+        select.value = settings[modeKey];
+        select.addEventListener('change', () => { settings[modeKey] = select.value; saveSettings(); renderModelPill(); });
+        const model = $('stage-' + stage + '-model');
+        model.placeholder = defaults.modelo || 'modelo';
+        model.value = settings[modelKey];
+        model.addEventListener('change', () => {
+          settings[modelKey] = model.value.trim();
+          saveSettings();
+          renderModelPill();
+        });
+      });
+
     // Data/hora simulada
     const simTime = $('sim-time');
     const presets = $('time-presets');
@@ -525,7 +706,7 @@
     $('new-conversation').addEventListener('click', async () => {
       if (busy) return;
       const { ok, data } = await postJson(page.urls.nova, {}, { Accept: 'application/json' });
-      if (ok) loadConversation(data.thread_id, [], []);
+      if (ok) loadConversation(data.thread_id, [], [], []);
     });
     $('open-form').addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -534,7 +715,7 @@
       const { ok, data } = await postJson(page.urls.abrir, { thread_id: id });
       if (ok) {
         $('open-thread').value = '';
-        loadConversation(data.thread_id, data.historico, data.rastro);
+        loadConversation(data.thread_id, data.historico, data.rastro, data.decisoes);
       } else {
         alert(data.erro || 'Não foi possível abrir a conversa.');
       }
@@ -542,10 +723,10 @@
     $('export-md').addEventListener('click', exportMarkdown);
   }
 
-  function loadConversation(id, history, trace) {
+  function loadConversation(id, history, trace, decisions) {
     threadId = id;
     $('thread-id').textContent = id;
-    turns = buildTurns(history, trace);
+    turns = buildTurns(history, trace, decisions);
     selectedTurn = null;
     renderConversation();
     renderInspector();

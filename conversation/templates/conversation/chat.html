@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Empório da Música — Ambiente de testes do agente</title>
-  <link rel="stylesheet" href="{% static 'agent/chat.css' %}">
+  <link rel="stylesheet" href="{% static 'conversation/chat.css' %}">
 </head>
 <body>
   {% csrf_token %}
@@ -69,6 +69,26 @@
         </details>
 
         <details open class="section">
+          <summary>Estágios</summary>
+          <p class="hint">Valem por mensagem. <b>off</b> desliga; <b>shadow</b> avalia e registra sem
+            efeito; <b>enforce</b> aplica.</p>
+          <div class="stage" data-stage="guardrails">
+            <label class="field-label" for="stage-guardrails-mode">Guardrails</label>
+            <select id="stage-guardrails-mode"></select>
+            <input type="text" id="stage-guardrails-model" list="model-options" autocomplete="off" spellcheck="false"
+                   aria-label="Modelo do guardrails">
+          </div>
+          <div class="stage" data-stage="roteador">
+            <label class="field-label" for="stage-roteador-mode">Roteador de intenção</label>
+            <select id="stage-roteador-mode"></select>
+            <input type="text" id="stage-roteador-model" list="model-options" autocomplete="off" spellcheck="false"
+                   aria-label="Modelo do roteador">
+          </div>
+          <p class="hint">Modelo vazio = o do <code>.env</code> (<code>LLM_MODEL_GUARDRAILS</code>,
+            <code>LLM_MODEL_ROUTER</code>). Um modelo menor deixa esses estágios mais rápidos.</p>
+        </details>
+
+        <details open class="section">
           <summary>Data e hora simuladas</summary>
           <input type="datetime-local" id="sim-time" aria-label="Data e hora simuladas">
           <div class="chips" id="time-presets"></div>
@@ -116,6 +136,7 @@
       <div class="panel-head">
         <div class="tabs" role="tablist">
           <button type="button" role="tab" class="tab" data-tab="trace" aria-selected="true">Rastro</button>
+          <button type="button" role="tab" class="tab" data-tab="decisions" aria-selected="false">Decisões</button>
           <button type="button" role="tab" class="tab" data-tab="prompt" aria-selected="false">Prompt</button>
           <button type="button" role="tab" class="tab" data-tab="tools" aria-selected="false">Ferramentas</button>
         </div>
@@ -125,6 +146,11 @@
         <section class="tab-panel" data-panel="trace">
           <div class="stats" id="stats"></div>
           <div id="trace"></div>
+        </section>
+        <section class="tab-panel" data-panel="decisions" hidden>
+          <p class="hint">O que cada estágio decidiu em cada mensagem: guardrails, intenção e ferramentas
+            liberadas, transferência para a equipe e uso de LLM.</p>
+          <div id="decisions"></div>
         </section>
         <section class="tab-panel" data-panel="prompt" hidden>
           <p class="hint" id="prompt-info"></p>
@@ -146,6 +172,6 @@
   </div>
 
   {{ page_data|json_script:"page-data" }}
-  <script src="{% static 'agent/chat.js' %}"></script>
+  <script src="{% static 'conversation/chat.js' %}"></script>
 </body>
 </html>

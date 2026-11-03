@@ -323,7 +323,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
 
 .stats {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 6px;
   margin: 10px 0;
 }
@@ -331,16 +331,34 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
 .stat b { display: block; font-size: 15px; }
 .stat span { font-size: 11px; color: var(--muted); }
 
+/* Estágios (configuração) */
+.stage { display: grid; grid-template-columns: minmax(132px, auto) 1fr; gap: 6px; }
+.stage .field-label { grid-column: 1 / -1; }
+.stage select, .stage input { min-width: 0; }
+
+/* Decisões (inspetor) */
+.decision-turn { border: 1px solid var(--border); border-radius: 10px; margin-bottom: 10px; overflow: hidden; }
+.decision-turn.selected { border-color: var(--accent); }
+.decision-turn > b { display: block; padding: 8px 10px; background: var(--surface-2); font-size: 13px;
+  overflow-wrap: anywhere; }
+.decision-row { display: grid; grid-template-columns: 92px 1fr; gap: 2px 10px; padding: 6px 10px; font-size: 12px;
+  border-top: 1px solid var(--border); }
+.decision-row > span:first-child { color: var(--muted); }
+.decision-row .badge-mode { display: inline-block; padding: 0 6px; border-radius: 6px; background: var(--surface-2);
+  margin-right: 4px; font-size: 11px; }
+.decision-row .warn { color: var(--error); }
+
 .turn { border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 10px; overflow: hidden; }
 .turn.selected { border-color: var(--accent); }
 .turn-head { padding: 8px 10px; background: var(--surface-2); font-size: 12px; }
 .turn-head b { display: block; font-size: 13px; margin-bottom: 2px; overflow-wrap: anywhere; }
 .turn-head span { color: var(--muted); }
 .event { border-top: 1px solid var(--border); padding: 8px 10px; font-size: 12px; }
-.event-title { display: flex; justify-content: space-between; gap: 8px; }
-.event-title .kind { font-weight: 600; }
+.event-title { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; }
+.event-title .kind { font-weight: 600; white-space: nowrap; }
 .event-title .kind.llm::before { content: "◆ "; color: var(--brand); }
 .event-title .kind.tool::before { content: "⚙ "; color: var(--accent); }
+.event-title .kind.stage::before { content: "➜ "; color: var(--muted); }
 .event-title .time { color: var(--muted); white-space: nowrap; }
 .event .detail { color: var(--muted); margin-top: 2px; overflow-wrap: anywhere; }
 .event .detail.error { color: var(--error); }
