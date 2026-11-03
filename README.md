@@ -41,7 +41,8 @@ OPENAI_API_KEY=sk-...        # ou a variável do provedor escolhido, ou LLM_API_
 ```
 
 Para rodar sem chave paga: `LLM_PROVIDER=ollama` com um modelo local que suporte ferramentas, ou
-`LLM_PROVIDER=openrouter` com um modelo `:free`. Todas as opções estão no
+`LLM_PROVIDER=openrouter` com um modelo `:free`. Modelos de raciocínio podem exigir
+`LLM_REASONING_EFFORT=none` para usar ferramentas. Todas as opções estão no
 [capítulo 5](docs/05-camada-llm.md).
 
 ### 3. Banco de dados
@@ -128,8 +129,10 @@ dados não têm a data de recebimento dos pedidos. As escolhas feitas estão no
 ## Limitações conhecidas
 
 - **Latência e custo:** um turno faz de 3 a 4 chamadas ao LLM em sequência (guardrails, roteador,
-  agente). O modelo gratuito usado nos testes tem latência muito variável e cota diária.
-- **Estágios em `shadow`:** o roteador e os guardrails ainda não restringem nada por padrão.
+  agente).
+- **Estágios em `shadow`:** o roteador e os guardrails ainda não restringem nada por padrão. Com o
+  `gpt-6-luna`, as avaliações atingiram as metas: roteador com 97% de acerto, guardrails sem falsos
+  bloqueios e agente em 12 de 12 conversas ([capítulo 9](docs/09-observabilidade-e-testes.md)).
 - **Respostas:** o modelo às vezes oferece "fechar a compra" (o agente não vende) e responde de
   forma otimista antes de verificar o pedido.
 - **Avaliações pequenas** (35, 22 e 12 casos), verificadas por expressões regulares.

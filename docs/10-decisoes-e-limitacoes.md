@@ -38,12 +38,16 @@ Cada decisão traz o motivo e as alternativas descartadas. Os detalhes estão no
 - **Latência e custo por turno:** guardrails, roteador e agente fazem de 3 a 4 chamadas ao LLM por
   mensagem, em sequência. Guardrails e roteador são independentes e poderiam rodar em paralelo; um
   modelo menor para eles (`LLM_MODEL_ROUTER`, `LLM_MODEL_GUARDRAILS`) também ajuda.
-- **Modelo gratuito:** `nemotron-3-ultra-550b:free` via OpenRouter tem latência muito variável (de
+- **Modelo:** com o `gpt-6-luna` (OpenAI), uma chamada leva de 1 a 4 s. Ele exige
+  `reasoning_effort=none` para usar ferramentas, e essa configuração vale para os três papéis (o
+  roteador caiu de 97% para 89% numa rodada sem raciocínio, antes das correções do capítulo 9); um
+  valor por papel seria a melhoria.
+- **Modelo gratuito (usado antes):** `nemotron-3-ultra-550b:free` via OpenRouter tem latência muito variável (de
   ~1 s a minutos por chamada) e cota diária (erro 429 `free-models-per-day`; com US$ 10 em créditos o
   limite sobe para 1.000 requisições por dia). Sem cota, o agente responde com a mensagem de
   contingência, e o roteador e os guardrails entram em fail-open.
-- **Estágios em `shadow` por padrão:** roteador e guardrails registram, mas não agem. Passar para
-  `enforce` depende de conferir as avaliações com o modelo em uso.
+- **Estágios em `shadow` por padrão:** roteador e guardrails registram, mas não agem. Com o
+  `gpt-6-luna` as metas foram atingidas; falta validar o agente com os dois em `enforce`.
 - **Avaliações pequenas:** 35, 22 e 12 casos cobrem os cenários do desafio, não a variedade de um
   atendimento real. A verificação das respostas é por expressões regulares, não por um juiz LLM.
 - **Sem streaming:** a resposta chega inteira de uma vez.
@@ -58,8 +62,8 @@ Cada decisão traz o motivo e as alternativas descartadas. Os detalhes estão no
 
 ## Próximos passos
 
-1. Rodar as três avaliações com o modelo escolhido e passar os estágios para `enforce` se as metas
-   forem atingidas (85% no roteador, zero falsos bloqueios nos guardrails).
+1. Rodar o `eval_agent` com os dois estágios em `enforce` e, se continuar 12/12, mudar o padrão
+   (as metas do roteador e dos guardrails já foram atingidas; capítulo 9).
 2. Rodar guardrails e roteador em paralelo e testar modelos menores para eles.
 3. Streaming (SSE) das respostas e dos eventos do LangGraph na UI.
 4. Juiz LLM no `eval_agent` para avaliar tom e correção, além das expressões regulares.
