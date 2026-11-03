@@ -1,4 +1,4 @@
-"""Relógio do agente, com suporte a data/hora simulada (para testes na UI).
+"""Relógio da aplicação, com suporte a data/hora simulada (para testes na UI).
 
 Tudo que depende de "agora" (horário da loja, prazos de pedidos, system prompt) lê
 daqui. O ambiente de testes pode congelar o relógio numa data para simular, por
@@ -11,7 +11,7 @@ from datetime import date, datetime
 
 from django.utils import timezone
 
-_frozen: ContextVar[datetime | None] = ContextVar('agent_frozen_now', default=None)
+_frozen: ContextVar[datetime | None] = ContextVar('frozen_now', default=None)
 
 
 def now() -> datetime:
