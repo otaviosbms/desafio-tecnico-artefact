@@ -89,6 +89,9 @@ calculam e as ferramentas devolvem os valores prontos:
   maiúsculas) ou o telefone (com ou sem DDD, mínimo de 8 dígitos) do cadastro.
 - **Resposta de erro:** pedido inexistente e contato errado devolvem a mesma mensagem, para não
   revelar quais números de pedido existem.
+- **Sem contato:** se o modelo chama a ferramenta sem um e-mail ou telefone de verdade (vazio ou
+  inventado), ela devolve `missing_contact`, que orienta a pedir o dado ao cliente em vez de dizer
+  que o pedido não existe.
 - **Guardrails:** pedidos de dados de outra pessoa recebem uma orientação extra (capítulo 4).
 
 ---

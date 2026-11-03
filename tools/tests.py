@@ -93,6 +93,12 @@ class ToolsTests(TestCase):
         self.assertEqual(result.error, 'verification_failed')
         self.assertEqual(set(result.to_model_payload()), {'erro'})
 
+    def test_pedido_sem_contato_pede_o_contato(self):
+        for contact in ['', 'nao informado', '4']:
+            result = ToolExecutor().run('consultar_pedido', {'numero_pedido': '4', 'email_ou_telefone': contact}, CTX)
+            self.assertEqual(result.error, 'missing_contact', contact)
+            self.assertIn('Peça ao cliente', result.to_model_payload()['erro'])
+
     def test_pedido_aceita_numero_como_inteiro(self):
         result = run('consultar_pedido', {'numero_pedido': 4, 'email_ou_telefone': 'lucas.mendes@jmail.com'})
         self.assertNotIn('erro', result)
